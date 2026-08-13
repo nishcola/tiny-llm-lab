@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import torch
 
 from tiny_llm_lab.config import DataConfig, ExperimentConfig, ModelConfig, TrainingConfig
@@ -64,3 +65,32 @@ def test_checkpoint_round_trip_preserves_predictions_and_state(tmp_path: Path) -
     assert loaded.dataset_metadata == metadata
     assert len(restored_optimizer.state) > 0
 
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+def test_checkpoint_loads_cuda_rng_state_when_mapped_to_cuda(tmp_path: Path) -> None:
+    config = checkpoint_config(tmp_path)
+    tokenizer = CharacterTokenizer.from_text("abcd")
+    model = DecoderOnlyTransformer(config.model).cuda()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    inputs = torch.tensor([[0, 1, 2, 3]], device="cuda")
+    loss = model(inputs, inputs).loss
+    assert loss is not None
+    loss.backward()
+    optimizer.step()
+    checkpoint_path = tmp_path / "cuda-checkpoint.pt"
+    save_checkpoint(
+        checkpoint_path,
+        model=model,
+        optimizer=optimizer,
+        tokenizer=tokenizer,
+        config=config,
+        step=1,
+        validation_loss=float(loss.item()),
+        dataset_metadata=DatasetMetadata(source="fixture", byte_count=4, sha256="abc123"),
+    )
+    restored_model = DecoderOnlyTransformer(config.model).cuda()
+
+    load_checkpoint(checkpoint_path, restored_model, map_location="cuda")
+
+    restored_model.eval()
+    torch.testing.assert_close(restored_model(inputs).logits, model.eval()(inputs).logits)

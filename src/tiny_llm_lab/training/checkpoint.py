@@ -81,7 +81,7 @@ def load_checkpoint(
     torch.set_rng_state(payload["rng_state"]["torch"].cpu())
     cuda_state = payload["rng_state"].get("cuda")
     if cuda_state is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(cuda_state)
+        torch.cuda.set_rng_state_all([state.cpu() for state in cuda_state])
     metadata_values = payload["dataset_metadata"]
     return LoadedCheckpoint(
         config=config,
@@ -90,4 +90,3 @@ def load_checkpoint(
         validation_loss=float(payload["validation_loss"]),
         dataset_metadata=DatasetMetadata(**metadata_values),
     )
-
