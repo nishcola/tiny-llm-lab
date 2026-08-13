@@ -39,9 +39,33 @@ tiny-llm train --config configs/dev.toml --resume checkpoints/latest.pt
 
 The development configuration uses FP32 and is intentionally small enough for a GTX 1650 SUPER with 4 GB VRAM. Set `device = "cpu"` in a copied configuration to force CPU training.
 
+## Inference and inspection
+
+The inference API operates on token IDs and does not depend on a UI framework. Inspect the final-position distribution or generate a continuation:
+
+```python
+from tiny_llm_lab.inference import generate, next_token_distribution
+from tiny_llm_lab.model import InstrumentationRequest
+
+next_token = next_token_distribution(model, prompt_ids, temperature=0.8, top_k=20)
+print(next_token.logits, next_token.probabilities)
+
+result = generate(model, prompt_ids, max_new_tokens=40, do_sample=False)
+continuation_ids = result.token_ids
+```
+
+Request model internals only when they are needed. Captures are detached tensors on the model device, so callers can selectively move data to CPU for a later visualization layer:
+
+```python
+request = InstrumentationRequest(attention_weights=True, hidden_states=True)
+inspected = next_token_distribution(model, prompt_ids, instrumentation=request)
+attention_by_layer = inspected.instrumentation.attention_weights
+```
+
+For generation, instrumentation requires `return_trace=True`; each trace step then includes logits, probabilities, the selected token, and its requested captures. Attention maps scale quadratically with prompt length, while hidden states and MLP activations scale linearly with sequence length. Plain model forwards and plain generation do not retain these tensors.
+
 ## Tests
 
 ```powershell
 python -m pytest
 ```
-
