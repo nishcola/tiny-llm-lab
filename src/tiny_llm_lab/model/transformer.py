@@ -13,10 +13,48 @@ from tiny_llm_lab.model.attention import CausalSelfAttention
 
 
 @dataclass(frozen=True)
+class InstrumentationRequest:
+    """Select semantic model representations to capture during a forward pass."""
+
+    attention_weights: bool = False
+    hidden_states: bool = False
+    attention_outputs: bool = False
+    mlp_activations: bool = False
+
+    @property
+    def enabled(self) -> bool:
+        return any(
+            (
+                self.attention_weights,
+                self.hidden_states,
+                self.attention_outputs,
+                self.mlp_activations,
+            )
+        )
+
+
+@dataclass(frozen=True)
+class ModelInstrumentation:
+    """Detached, caller-requested semantic representations from a model pass."""
+
+    attention_weights: tuple[Tensor, ...] | None = None
+    hidden_states: tuple[Tensor, ...] | None = None
+    attention_outputs: tuple[Tensor, ...] | None = None
+    mlp_activations: tuple[Tensor, ...] | None = None
+
+
+@dataclass(frozen=True)
 class ModelOutput:
     logits: Tensor
     loss: Tensor | None = None
-    attentions: tuple[Tensor, ...] | None = None
+    instrumentation: ModelInstrumentation | None = None
+
+    @property
+    def attentions(self) -> tuple[Tensor, ...] | None:
+        """Compatibility alias for attention captures requested by older callers."""
+        if self.instrumentation is None:
+            return None
+        return self.instrumentation.attention_weights
 
 
 class FeedForward(nn.Module):
@@ -29,8 +67,10 @@ class FeedForward(nn.Module):
             nn.Dropout(config.dropout),
         )
 
-    def forward(self, inputs: Tensor) -> Tensor:
-        return self.layers(inputs)
+    def forward(self, inputs: Tensor, return_activation: bool = False) -> tuple[Tensor, Tensor | None]:
+        activations = self.layers[1](self.layers[0](inputs))
+        outputs = self.layers[3](self.layers[2](activations))
+        return outputs, activations if return_activation else None
 
 
 class DecoderBlock(nn.Module):
@@ -41,14 +81,30 @@ class DecoderBlock(nn.Module):
         self.mlp_norm = nn.LayerNorm(config.embedding_dim)
         self.mlp = FeedForward(config)
 
-    def forward(self, inputs: Tensor, return_attention: bool) -> tuple[Tensor, Tensor | None]:
+    def forward(
+        self,
+        inputs: Tensor,
+        instrumentation: InstrumentationRequest | None,
+    ) -> tuple[Tensor, Tensor | None, Tensor | None, Tensor | None]:
+        capture_attention_weights = instrumentation is not None and instrumentation.attention_weights
+        capture_attention_outputs = instrumentation is not None and instrumentation.attention_outputs
+        capture_mlp_activations = instrumentation is not None and instrumentation.mlp_activations
         attention_output, weights = self.attention(
             self.attention_norm(inputs),
-            return_attention=return_attention,
+            return_attention=capture_attention_weights,
         )
         hidden_states = inputs + attention_output
-        hidden_states = hidden_states + self.mlp(self.mlp_norm(hidden_states))
-        return hidden_states, weights
+        mlp_output, mlp_activations = self.mlp(
+            self.mlp_norm(hidden_states),
+            return_activation=capture_mlp_activations,
+        )
+        hidden_states = hidden_states + mlp_output
+        return (
+            hidden_states,
+            weights,
+            attention_output if capture_attention_outputs else None,
+            mlp_activations,
+        )
 
 
 class DecoderOnlyTransformer(nn.Module):
@@ -76,7 +132,8 @@ class DecoderOnlyTransformer(nn.Module):
         self,
         input_ids: Tensor,
         targets: Tensor | None = None,
-        return_attentions: bool = False,
+        instrumentation: InstrumentationRequest | None = None,
+        return_attentions: bool | None = None,
     ) -> ModelOutput:
         if input_ids.ndim != 2:
             raise ValueError("input_ids must have shape (batch, sequence)")
@@ -85,15 +142,31 @@ class DecoderOnlyTransformer(nn.Module):
             raise ValueError("sequence length exceeds the configured context length")
         if targets is not None and targets.shape != input_ids.shape:
             raise ValueError("targets must have the same shape as input_ids")
+        if return_attentions is not None:
+            if instrumentation is not None:
+                raise ValueError("use either instrumentation or return_attentions, not both")
+            instrumentation = InstrumentationRequest(attention_weights=return_attentions)
 
         positions = torch.arange(sequence_length, device=input_ids.device)
         hidden_states = self.token_embeddings(input_ids) + self.position_embeddings(positions)
         hidden_states = self.embedding_dropout(hidden_states)
+        capture = instrumentation if instrumentation is not None and instrumentation.enabled else None
         captured_attentions: list[Tensor] = []
+        captured_hidden_states: list[Tensor] = []
+        captured_attention_outputs: list[Tensor] = []
+        captured_mlp_activations: list[Tensor] = []
+        if capture is not None and capture.hidden_states:
+            captured_hidden_states.append(hidden_states.detach())
         for block in self.blocks:
-            hidden_states, weights = block(hidden_states, return_attention=return_attentions)
+            hidden_states, weights, attention_output, mlp_activations = block(hidden_states, capture)
             if weights is not None:
-                captured_attentions.append(weights)
+                captured_attentions.append(weights.detach())
+            if capture is not None and capture.hidden_states:
+                captured_hidden_states.append(hidden_states.detach())
+            if attention_output is not None:
+                captured_attention_outputs.append(attention_output.detach())
+            if mlp_activations is not None:
+                captured_mlp_activations.append(mlp_activations.detach())
         logits = self.language_model_head(self.final_norm(hidden_states))
         loss = None
         if targets is not None:
@@ -101,9 +174,12 @@ class DecoderOnlyTransformer(nn.Module):
                 logits.reshape(batch_size * sequence_length, -1),
                 targets.reshape(batch_size * sequence_length),
             )
-        return ModelOutput(
-            logits=logits,
-            loss=loss,
-            attentions=tuple(captured_attentions) if return_attentions else None,
-        )
-
+        captured = None
+        if capture is not None:
+            captured = ModelInstrumentation(
+                attention_weights=tuple(captured_attentions) if capture.attention_weights else None,
+                hidden_states=tuple(captured_hidden_states) if capture.hidden_states else None,
+                attention_outputs=tuple(captured_attention_outputs) if capture.attention_outputs else None,
+                mlp_activations=tuple(captured_mlp_activations) if capture.mlp_activations else None,
+            )
+        return ModelOutput(logits=logits, loss=loss, instrumentation=captured)
