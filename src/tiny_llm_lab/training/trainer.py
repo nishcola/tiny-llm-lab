@@ -12,7 +12,7 @@ from torch import nn
 from tiny_llm_lab.config import ExperimentConfig
 from tiny_llm_lab.data import TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
-from tiny_llm_lab.tokenizer import CharacterTokenizer
+from tiny_llm_lab.tokenizer import Tokenizer
 from tiny_llm_lab.training.checkpoint import save_checkpoint
 
 
@@ -67,7 +67,7 @@ def evaluate(
 def train_model(
     model: DecoderOnlyTransformer,
     dataset: TextDataset,
-    tokenizer: CharacterTokenizer,
+    tokenizer: Tokenizer,
     config: ExperimentConfig,
     *,
     device: torch.device | None = None,
@@ -153,4 +153,3 @@ def train_model(
             save_checkpoint(training.output_dir / "latest.pt", **checkpoint_arguments)
 
     return TrainingResult(step=training.max_steps, validation_loss=latest_validation_loss)
-

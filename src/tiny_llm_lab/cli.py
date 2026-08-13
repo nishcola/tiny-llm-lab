@@ -14,7 +14,7 @@ import torch
 from tiny_llm_lab.config import ExperimentConfig, load_config
 from tiny_llm_lab.data import DatasetMetadata, TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
-from tiny_llm_lab.tokenizer import CharacterTokenizer
+from tiny_llm_lab.tokenizer import BytePairTokenizer, Tokenizer
 from tiny_llm_lab.training.checkpoint import load_checkpoint
 from tiny_llm_lab.training.trainer import select_device, train_model
 
@@ -40,10 +40,10 @@ def download_corpus(source_url: str, output: str | Path) -> DatasetMetadata:
 
 
 def _prepare_experiment(config: ExperimentConfig) -> tuple[
-    ExperimentConfig, CharacterTokenizer, TextDataset
+    ExperimentConfig, Tokenizer, TextDataset
 ]:
     text = config.data.path.read_bytes().decode("utf-8")
-    tokenizer = CharacterTokenizer.from_text(text)
+    tokenizer = BytePairTokenizer.train(text, config.tokenizer.vocabulary_size)
     effective_config = replace(
         config,
         model=replace(config.model, vocabulary_size=tokenizer.vocabulary_size),

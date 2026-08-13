@@ -5,23 +5,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import random
-from typing import Any
+from typing import Any, Mapping
 
 import torch
 from torch import nn
 
 from tiny_llm_lab.config import ExperimentConfig
 from tiny_llm_lab.data import DatasetMetadata
-from tiny_llm_lab.tokenizer import CharacterTokenizer
+from tiny_llm_lab.tokenizer import BytePairTokenizer, CharacterTokenizer, Tokenizer
 
 
-CHECKPOINT_VERSION = 1
+CHECKPOINT_VERSION = 2
 
 
 @dataclass(frozen=True)
 class LoadedCheckpoint:
     config: ExperimentConfig
-    tokenizer: CharacterTokenizer
+    tokenizer: Tokenizer
     step: int
     validation_loss: float
     dataset_metadata: DatasetMetadata
@@ -32,7 +32,7 @@ def save_checkpoint(
     *,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
-    tokenizer: CharacterTokenizer,
+    tokenizer: Tokenizer,
     config: ExperimentConfig,
     step: int,
     validation_loss: float,
@@ -45,7 +45,7 @@ def save_checkpoint(
         "config": config.to_dict(),
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
-        "tokenizer": tokenizer.state_dict(),
+        "tokenizer": _tokenizer_payload(tokenizer),
         "step": step,
         "validation_loss": validation_loss,
         "dataset_metadata": dataset_metadata.to_dict(),
@@ -68,7 +68,7 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
 ) -> LoadedCheckpoint:
     payload = torch.load(Path(path), map_location=map_location, weights_only=False)
-    if payload.get("version") != CHECKPOINT_VERSION:
+    if payload.get("version") not in {1, CHECKPOINT_VERSION}:
         raise ValueError(f"Unsupported checkpoint version: {payload.get('version')!r}")
     config = ExperimentConfig.from_dict(payload["config"])
     model_config = getattr(model, "config", None)
@@ -85,8 +85,34 @@ def load_checkpoint(
     metadata_values = payload["dataset_metadata"]
     return LoadedCheckpoint(
         config=config,
-        tokenizer=CharacterTokenizer.from_state_dict(payload["tokenizer"]),
+        tokenizer=_load_tokenizer(payload["tokenizer"]),
         step=int(payload["step"]),
         validation_loss=float(payload["validation_loss"]),
         dataset_metadata=DatasetMetadata(**metadata_values),
     )
+
+
+def _tokenizer_payload(tokenizer: Tokenizer) -> dict[str, object]:
+    if isinstance(tokenizer, CharacterTokenizer):
+        tokenizer_type = "character"
+    elif isinstance(tokenizer, BytePairTokenizer):
+        tokenizer_type = "byte_pair"
+    else:
+        raise TypeError(f"Unsupported tokenizer type: {type(tokenizer).__name__}")
+    return {"type": tokenizer_type, "state": dict(tokenizer.state_dict())}
+
+
+def _load_tokenizer(payload: object) -> Tokenizer:
+    if not isinstance(payload, Mapping):
+        raise ValueError("Checkpoint tokenizer payload must be a mapping")
+    if "type" not in payload:
+        return CharacterTokenizer.from_state_dict(payload)
+    tokenizer_type = payload.get("type")
+    state = payload.get("state")
+    if not isinstance(state, Mapping):
+        raise ValueError("Checkpoint tokenizer state must be a mapping")
+    if tokenizer_type == "character":
+        return CharacterTokenizer.from_state_dict(state)
+    if tokenizer_type == "byte_pair":
+        return BytePairTokenizer.from_state_dict(state)
+    raise ValueError(f"Unsupported checkpoint tokenizer type: {tokenizer_type!r}")

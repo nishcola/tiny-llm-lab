@@ -42,6 +42,15 @@ class DataConfig:
 
 
 @dataclass(frozen=True)
+class TokenizerConfig:
+    vocabulary_size: int = 320
+
+    def __post_init__(self) -> None:
+        if self.vocabulary_size < 256:
+            raise ValueError("tokenizer vocabulary_size must be at least 256 for byte-level BPE")
+
+
+@dataclass(frozen=True)
 class TrainingConfig:
     device: str = "auto"
     seed: int = 1337
@@ -77,6 +86,7 @@ class TrainingConfig:
 class ExperimentConfig:
     model: ModelConfig
     data: DataConfig
+    tokenizer: TokenizerConfig = field(default_factory=TokenizerConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,6 +99,7 @@ class ExperimentConfig:
     def from_dict(cls, values: Mapping[str, Any]) -> "ExperimentConfig":
         model_values = dict(values["model"])
         data_values = dict(values["data"])
+        tokenizer_values = dict(values.get("tokenizer", {}))
         training_values = dict(values.get("training", {}))
         data_values["path"] = Path(data_values["path"])
         if "output_dir" in training_values:
@@ -96,6 +107,7 @@ class ExperimentConfig:
         return cls(
             model=ModelConfig(**model_values),
             data=DataConfig(**data_values),
+            tokenizer=TokenizerConfig(**tokenizer_values),
             training=TrainingConfig(**training_values),
         )
 
@@ -103,4 +115,3 @@ class ExperimentConfig:
 def load_config(path: str | Path) -> ExperimentConfig:
     with Path(path).open("rb") as config_file:
         return ExperimentConfig.from_dict(tomllib.load(config_file))
-
