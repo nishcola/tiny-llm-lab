@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from tiny_llm_lab.tokenizer import CharacterTokenizer
+from tiny_llm_lab.tokenizer import Tokenizer
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class TextDataset:
     def from_file(
         cls,
         path: str | Path,
-        tokenizer: CharacterTokenizer,
+        tokenizer: Tokenizer,
         train_fraction: float = 0.9,
         source: str | None = None,
     ) -> "TextDataset":
@@ -82,4 +82,3 @@ class TextDataset:
         inputs = torch.stack([tokens[start : start + context_length] for start in starts.tolist()])
         targets = torch.stack([tokens[start + 1 : start + context_length + 1] for start in starts.tolist()])
         return inputs.to(device), targets.to(device)
-

@@ -1,7 +1,9 @@
 from hashlib import sha256
 from pathlib import Path
 
-from tiny_llm_lab.cli import download_corpus, main
+from tiny_llm_lab.cli import _prepare_experiment, download_corpus, main
+from tiny_llm_lab.config import load_config
+from tiny_llm_lab.tokenizer import BytePairTokenizer
 
 
 def test_download_corpus_writes_bytes_and_reports_digest(tmp_path: Path) -> None:
@@ -59,3 +61,32 @@ output_dir = "{checkpoint_dir.as_posix()}"
     assert exit_code == 0
     assert (checkpoint_dir / "latest.pt").is_file()
 
+
+def test_prepare_experiment_trains_configured_bpe_and_derives_model_vocabulary(tmp_path: Path) -> None:
+    corpus_path = tmp_path / "corpus.txt"
+    corpus_path.write_text("banana bandana " * 20, encoding="utf-8")
+    config_path = tmp_path / "bpe.toml"
+    config_path.write_text(
+        f"""
+[model]
+context_length = 8
+embedding_dim = 12
+num_layers = 1
+num_heads = 3
+mlp_dim = 24
+
+[data]
+path = "{corpus_path.as_posix()}"
+
+[tokenizer]
+vocabulary_size = 260
+""".strip(),
+        encoding="utf-8",
+    )
+
+    effective_config, tokenizer, dataset = _prepare_experiment(load_config(config_path))
+
+    assert isinstance(tokenizer, BytePairTokenizer)
+    assert tokenizer.vocabulary_size == 260
+    assert effective_config.model.vocabulary_size == tokenizer.vocabulary_size
+    assert tokenizer.decode(dataset.train_tokens.tolist()).startswith("banana")

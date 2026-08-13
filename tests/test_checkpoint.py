@@ -6,7 +6,7 @@ import torch
 from tiny_llm_lab.config import DataConfig, ExperimentConfig, ModelConfig, TrainingConfig
 from tiny_llm_lab.data import DatasetMetadata
 from tiny_llm_lab.model import DecoderOnlyTransformer
-from tiny_llm_lab.tokenizer import CharacterTokenizer
+from tiny_llm_lab.tokenizer import BytePairTokenizer, CharacterTokenizer
 from tiny_llm_lab.training.checkpoint import load_checkpoint, save_checkpoint
 
 
@@ -64,6 +64,67 @@ def test_checkpoint_round_trip_preserves_predictions_and_state(tmp_path: Path) -
     assert loaded.config == config
     assert loaded.dataset_metadata == metadata
     assert len(restored_optimizer.state) > 0
+
+
+def test_checkpoint_round_trip_restores_byte_pair_tokenizer(tmp_path: Path) -> None:
+    config = checkpoint_config(tmp_path)
+    tokenizer = BytePairTokenizer.train("banana bandana " * 20, vocabulary_size=260)
+    config = ExperimentConfig(
+        model=ModelConfig(
+            vocabulary_size=tokenizer.vocabulary_size,
+            context_length=6,
+            embedding_dim=12,
+            num_layers=1,
+            num_heads=3,
+            mlp_dim=24,
+        ),
+        data=config.data,
+        training=config.training,
+    )
+    model = DecoderOnlyTransformer(config.model)
+    checkpoint_path = tmp_path / "bpe.pt"
+
+    save_checkpoint(
+        checkpoint_path,
+        model=model,
+        optimizer=torch.optim.AdamW(model.parameters(), lr=1e-3),
+        tokenizer=tokenizer,
+        config=config,
+        step=1,
+        validation_loss=1.0,
+        dataset_metadata=DatasetMetadata(source="fixture", byte_count=1, sha256="digest"),
+    )
+
+    loaded = load_checkpoint(checkpoint_path, DecoderOnlyTransformer(config.model))
+
+    assert isinstance(loaded.tokenizer, BytePairTokenizer)
+    assert loaded.tokenizer.encode("banana") == tokenizer.encode("banana")
+
+
+def test_checkpoint_loader_accepts_legacy_character_tokenizer_payload(tmp_path: Path) -> None:
+    config = checkpoint_config(tmp_path)
+    tokenizer = CharacterTokenizer.from_text("abcd")
+    model = DecoderOnlyTransformer(config.model)
+    checkpoint_path = tmp_path / "legacy.pt"
+    save_checkpoint(
+        checkpoint_path,
+        model=model,
+        optimizer=torch.optim.AdamW(model.parameters(), lr=1e-3),
+        tokenizer=tokenizer,
+        config=config,
+        step=1,
+        validation_loss=1.0,
+        dataset_metadata=DatasetMetadata(source="fixture", byte_count=1, sha256="digest"),
+    )
+    payload = torch.load(checkpoint_path, weights_only=False)
+    payload["version"] = 1
+    payload["tokenizer"] = tokenizer.state_dict()
+    torch.save(payload, checkpoint_path)
+
+    loaded = load_checkpoint(checkpoint_path, DecoderOnlyTransformer(config.model))
+
+    assert isinstance(loaded.tokenizer, CharacterTokenizer)
+    assert loaded.tokenizer.encode("abcd") == [0, 1, 2, 3]
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")

@@ -1,6 +1,12 @@
 # Tiny Language Model Lab
 
-Tiny Language Model Lab is a small, inspectable decoder-only transformer implemented directly with PyTorch primitives. This first milestone provides a character tokenizer, text-data pipeline, training CLI, validation, and resumable checkpoints.
+Tiny Language Model Lab is a small, inspectable decoder-only transformer implemented directly with PyTorch primitives. The training pipeline uses a trainable byte-level BPE tokenizer, with the original character tokenizer retained for educational comparisons, plus data loading, validation, and resumable checkpoints.
+
+## Tokenization
+
+Training learns a deterministic byte-level BPE vocabulary from the configured UTF-8 corpus. It starts with all 256 byte values, so arbitrary Unicode text can be encoded without an unknown-token fallback. Configure its maximum vocabulary size in `[tokenizer].vocabulary_size` (the development configuration uses `320`); the actual model vocabulary size is always taken from the trained tokenizer.
+
+Tokenizer state records the byte vocabulary and ordered merge rules, can be saved as JSON, and is embedded in checkpoints. Character-tokenizer checkpoints created before this milestone remain loadable, but cannot resume as BPE runs because their token IDs and model embedding shapes differ.
 
 ## Requirements
 
