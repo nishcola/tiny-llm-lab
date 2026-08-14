@@ -70,6 +70,17 @@ attention_by_layer = inspected.instrumentation.attention_weights
 
 For generation, instrumentation requires `return_trace=True`; each trace step then includes logits, probabilities, the selected token, and its requested captures. Attention maps scale quadratically with prompt length, while hidden states and MLP activations scale linearly with sequence length. Plain model forwards and plain generation do not retain these tensors.
 
+## Next-token explorer
+
+Install the optional local UI dependency, then launch the explorer with a trained checkpoint:
+
+```powershell
+python -m pip install -e ".[dev,ui]"
+streamlit run src/tiny_llm_lab/app/streamlit_page.py -- --checkpoint checkpoints/latest.pt
+```
+
+The page shows the entered prompt's token IDs and readable token text, then the top next-token predictions and probabilities. Temperature recomputes the existing inference distribution; the top-k control only changes how many predictions are displayed. Prompts must contain at least one token and fit within the checkpoint's context limit.
+
 ## Tests
 
 ```powershell
