@@ -15,7 +15,7 @@ from tiny_llm_lab.config import ExperimentConfig, load_config
 from tiny_llm_lab.data import DatasetMetadata, TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
 from tiny_llm_lab.tokenizer import BytePairTokenizer, Tokenizer
-from tiny_llm_lab.training.checkpoint import load_checkpoint
+from tiny_llm_lab.training.checkpoint import TimelineRun, discover_timeline_run, load_checkpoint
 from tiny_llm_lab.training.trainer import select_device, train_model
 
 
@@ -67,6 +67,7 @@ def _run_train(config_path: Path, resume_path: Path | None) -> int:
         weight_decay=config.training.weight_decay,
     )
     start_step = 0
+    timeline_run: TimelineRun | None = None
     if resume_path is not None:
         loaded = load_checkpoint(resume_path, model, optimizer, map_location=device)
         if loaded.tokenizer != tokenizer:
@@ -74,6 +75,11 @@ def _run_train(config_path: Path, resume_path: Path | None) -> int:
         if loaded.dataset_metadata.sha256 != dataset.metadata.sha256:
             raise ValueError("Checkpoint dataset digest does not match the configured corpus")
         start_step = loaded.step
+        if resume_path.name == "latest.pt" and resume_path.parent.name == "resume":
+            candidate_run = discover_timeline_run(resume_path.parent.parent)
+            if candidate_run.error:
+                raise ValueError(f"Could not resume timeline run: {candidate_run.error}")
+            timeline_run = candidate_run
         print(f"resumed {resume_path} at step {start_step}")
 
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
@@ -86,6 +92,7 @@ def _run_train(config_path: Path, resume_path: Path | None) -> int:
         device=device,
         optimizer=optimizer,
         start_step=start_step,
+        run=timeline_run,
     )
     print(f"training complete at step {result.step}; validation_loss={result.validation_loss:.4f}")
     return 0

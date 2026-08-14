@@ -37,10 +37,15 @@ tiny-llm download-data --output data/tiny_shakespeare.txt
 tiny-llm train --config configs/dev.toml
 ```
 
-Resume from the latest checkpoint:
+Training creates a timestamped run in `checkpoints/runs/`. Each run keeps one full resumable
+checkpoint and a bounded set of lightweight inference snapshots. Optionally set
+`run_name` and `max_timeline_checkpoints` in `[training]` to choose a stable name and
+timeline retention limit.
+
+Resume from a run's latest checkpoint:
 
 ```powershell
-tiny-llm train --config configs/dev.toml --resume checkpoints/latest.pt
+tiny-llm train --config configs/dev.toml --resume checkpoints/runs/<run-id>/resume/latest.pt
 ```
 
 The development configuration uses FP32 and is intentionally small enough for a GTX 1650 SUPER with 4 GB VRAM. Set `device = "cpu"` in a copied configuration to force CPU training.
@@ -72,14 +77,25 @@ For generation, instrumentation requires `return_trace=True`; each trace step th
 
 ## Next-token explorer
 
-Install the optional local UI dependency, then launch the explorer with a trained checkpoint:
+Install the optional local UI dependency, then launch the explorer with a trained checkpoint
+or a training run:
 
 ```powershell
 python -m pip install -e ".[dev,ui]"
-streamlit run src/tiny_llm_lab/app/streamlit_page.py -- --checkpoint checkpoints/latest.pt
+streamlit run src/tiny_llm_lab/app/streamlit_page.py -- --checkpoint path/to/legacy-or-standalone.pt
+streamlit run src/tiny_llm_lab/app/streamlit_page.py -- --run checkpoints/runs/<run-id>
 ```
 
-The page shows the entered prompt's token IDs and readable token text, then the top next-token predictions and probabilities. Temperature recomputes the existing inference distribution; the top-k control only changes how many predictions are displayed. The attention explorer selects a transformer layer and attention head, then renders a hoverable causal-attention heatmap. Future-token cells are visibly unavailable, and prompts longer than 32 tokens are displayed as their first 32 tokens so labels remain readable. Prompts must contain at least one token and fit within the checkpoint's context limit.
+The run timeline uses a checkpoint-step slider and loads only the selected model (with a two-entry
+LRU cache). It shows the same prompt's predictions at each selected step and plots recorded training
+and validation loss when available. Missing, corrupted, or incompatible timeline files remain visible
+as unavailable rather than blocking the rest of the run. The page also shows the entered prompt's token
+IDs and readable token text, then the top next-token predictions and probabilities. Temperature recomputes
+the existing inference distribution; the top-k control only changes how many predictions are displayed.
+The attention explorer selects a transformer layer and attention head, then renders a hoverable causal-attention
+heatmap. Future-token cells are visibly unavailable, and prompts longer than 32 tokens are displayed as their
+first 32 tokens so labels remain readable. Prompts must contain at least one token and fit within the checkpoint's
+context limit.
 
 ## Tests
 

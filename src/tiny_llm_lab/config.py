@@ -64,6 +64,8 @@ class TrainingConfig:
     eval_batches: int = 20
     checkpoint_interval: int = 500
     output_dir: Path = Path("checkpoints")
+    run_name: str | None = None
+    max_timeline_checkpoints: int = 12
 
     def __post_init__(self) -> None:
         if self.device not in {"auto", "cpu", "cuda"}:
@@ -75,9 +77,14 @@ class TrainingConfig:
             "eval_interval",
             "eval_batches",
             "checkpoint_interval",
+            "max_timeline_checkpoints",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
+        if self.run_name is not None and not self.run_name.strip():
+            raise ValueError("run_name must not be blank when provided")
+        if self.max_timeline_checkpoints < 2:
+            raise ValueError("max_timeline_checkpoints must be at least 2")
         if self.learning_rate <= 0 or self.max_grad_norm <= 0 or self.weight_decay < 0:
             raise ValueError("optimizer settings must be non-negative, with positive learning rate and gradient norm")
 

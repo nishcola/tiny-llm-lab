@@ -8,8 +8,17 @@ from typing import Any
 
 import torch
 
-from tiny_llm_lab.app.explorer import AttentionView, ExplorerSession, inspect_prompt
-from tiny_llm_lab.training.checkpoint import load_inference_checkpoint
+from tiny_llm_lab.app.explorer import (
+    AttentionView,
+    ExplorerSession,
+    TimelineCheckpointCache,
+    inspect_prompt,
+)
+from tiny_llm_lab.training.checkpoint import (
+    TimelineRun,
+    discover_timeline_run,
+    load_inference_checkpoint,
+)
 from tiny_llm_lab.training.trainer import select_device
 
 
@@ -107,9 +116,67 @@ def render_attention_heatmap(page: Any, view: AttentionView) -> None:
     page.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
 
 
+def render_timeline_explorer(
+    page: Any,
+    run: TimelineRun,
+    cache: TimelineCheckpointCache,
+    *,
+    default_prompt: str = "",
+) -> None:
+    """Render one checkpoint at a time while retaining a bounded model cache."""
+    page.title("Training Checkpoint Timeline")
+    if run.error:
+        page.error(f"Could not discover run: {run.error}")
+        return
+    available = [checkpoint for checkpoint in run.checkpoints if checkpoint.available]
+    unavailable = [checkpoint for checkpoint in run.checkpoints if not checkpoint.available]
+    if unavailable:
+        page.info(f"{len(unavailable)} checkpoint(s) are unavailable and cannot be inspected.")
+    if not available:
+        page.error("This run contains no usable timeline checkpoints.")
+        return
+    selected_step = int(
+        page.select_slider(
+            "Checkpoint step",
+            options=[checkpoint.step for checkpoint in available],
+            value=available[-1].step,
+            format_func=lambda step: _checkpoint_label(next(item for item in available if item.step == step)),
+        )
+    )
+    checkpoint = next(item for item in available if item.step == selected_step)
+    try:
+        session = cache.load(checkpoint)
+    except (OSError, RuntimeError, ValueError) as error:
+        page.error(f"Could not load checkpoint at step {checkpoint.step}: {error}")
+        return
+    page.caption(_checkpoint_label(checkpoint))
+    _render_loss_plot(page, run)
+    render_explorer(page, session, default_prompt=default_prompt)
+
+
+def _checkpoint_label(checkpoint: Any) -> str:
+    loss = "not evaluated" if checkpoint.validation_loss is None else f"val loss {checkpoint.validation_loss:.4f}"
+    return f"Step {checkpoint.step:,} — {loss}"
+
+
+def _render_loss_plot(page: Any, run: TimelineRun) -> None:
+    if not run.metrics:
+        return
+    points = [
+        {"Step": metric.step, "Training loss": metric.training_loss, "Validation loss": metric.validation_loss}
+        for metric in run.metrics
+        if metric.training_loss is not None or metric.validation_loss is not None
+    ]
+    if points:
+        page.subheader("Training and validation loss")
+        page.line_chart(points, x="Step", y=["Training loss", "Validation loss"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Tiny LLM next-token explorer")
-    parser.add_argument("--checkpoint", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--checkpoint", type=Path)
+    source.add_argument("--run", type=Path)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     arguments = parser.parse_args()
 
@@ -117,15 +184,24 @@ def main() -> None:
 
     try:
         device = select_device(arguments.device)
-        loaded = load_inference_checkpoint(arguments.checkpoint, map_location=device)
+        if arguments.checkpoint is not None:
+            loaded = load_inference_checkpoint(arguments.checkpoint, map_location=device)
+        else:
+            run = discover_timeline_run(arguments.run)
     except (OSError, RuntimeError, ValueError) as error:
         st.title("Next-Token Explorer")
         st.error(f"Could not load checkpoint: {error}")
         st.stop()
-    render_explorer(
-        st,
-        ExplorerSession(model=loaded.model, tokenizer=loaded.tokenizer, device=torch.device(device)),
-    )
+    if arguments.checkpoint is not None:
+        render_explorer(
+            st,
+            ExplorerSession(model=loaded.model, tokenizer=loaded.tokenizer, device=torch.device(device)),
+        )
+        return
+    cache_key = f"timeline-cache:{run.path.resolve()}:{device.type}"
+    if cache_key not in st.session_state:
+        st.session_state[cache_key] = TimelineCheckpointCache(run, torch.device(device))
+    render_timeline_explorer(st, run, st.session_state[cache_key])
 
 
 if __name__ == "__main__":
