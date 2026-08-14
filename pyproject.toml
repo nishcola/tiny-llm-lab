@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
+ui = ["streamlit>=1.42,<2"]
 
 [project.scripts]
 tiny-llm = "tiny_llm_lab.cli:main"

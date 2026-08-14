@@ -12,6 +12,7 @@ from torch import nn
 
 from tiny_llm_lab.config import ExperimentConfig
 from tiny_llm_lab.data import DatasetMetadata
+from tiny_llm_lab.model import DecoderOnlyTransformer
 from tiny_llm_lab.tokenizer import BytePairTokenizer, CharacterTokenizer, Tokenizer
 
 
@@ -22,6 +23,18 @@ CHECKPOINT_VERSION = 2
 class LoadedCheckpoint:
     config: ExperimentConfig
     tokenizer: Tokenizer
+    step: int
+    validation_loss: float
+    dataset_metadata: DatasetMetadata
+
+
+@dataclass(frozen=True)
+class InferenceCheckpoint:
+    """A checkpoint reconstructed for read-only model inspection."""
+
+    model: DecoderOnlyTransformer
+    tokenizer: Tokenizer
+    config: ExperimentConfig
     step: int
     validation_loss: float
     dataset_metadata: DatasetMetadata
@@ -86,6 +99,30 @@ def load_checkpoint(
     return LoadedCheckpoint(
         config=config,
         tokenizer=_load_tokenizer(payload["tokenizer"]),
+        step=int(payload["step"]),
+        validation_loss=float(payload["validation_loss"]),
+        dataset_metadata=DatasetMetadata(**metadata_values),
+    )
+
+
+def load_inference_checkpoint(
+    path: str | Path,
+    *,
+    map_location: str | torch.device = "cpu",
+) -> InferenceCheckpoint:
+    """Recreate an evaluation-mode model and tokenizer from a checkpoint."""
+    payload = torch.load(Path(path), map_location=map_location, weights_only=False)
+    if payload.get("version") not in {1, CHECKPOINT_VERSION}:
+        raise ValueError(f"Unsupported checkpoint version: {payload.get('version')!r}")
+    config = ExperimentConfig.from_dict(payload["config"])
+    model = DecoderOnlyTransformer(config.model).to(map_location)
+    model.load_state_dict(payload["model_state"])
+    model.eval()
+    metadata_values = payload["dataset_metadata"]
+    return InferenceCheckpoint(
+        model=model,
+        tokenizer=_load_tokenizer(payload["tokenizer"]),
+        config=config,
         step=int(payload["step"]),
         validation_loss=float(payload["validation_loss"]),
         dataset_metadata=DatasetMetadata(**metadata_values),
