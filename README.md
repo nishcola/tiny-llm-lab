@@ -79,7 +79,7 @@ python -m pip install -e ".[dev,ui]"
 streamlit run src/tiny_llm_lab/app/streamlit_page.py -- --checkpoint checkpoints/latest.pt
 ```
 
-The page shows the entered prompt's token IDs and readable token text, then the top next-token predictions and probabilities. Temperature recomputes the existing inference distribution; the top-k control only changes how many predictions are displayed. Prompts must contain at least one token and fit within the checkpoint's context limit.
+The page shows the entered prompt's token IDs and readable token text, then the top next-token predictions and probabilities. Temperature recomputes the existing inference distribution; the top-k control only changes how many predictions are displayed. The attention explorer selects a transformer layer and attention head, then renders a hoverable causal-attention heatmap. Future-token cells are visibly unavailable, and prompts longer than 32 tokens are displayed as their first 32 tokens so labels remain readable. Prompts must contain at least one token and fit within the checkpoint's context limit.
 
 ## Tests
 

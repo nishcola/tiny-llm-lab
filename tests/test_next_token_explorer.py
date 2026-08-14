@@ -10,7 +10,7 @@ from tiny_llm_lab.app.formatting import format_token
 from tiny_llm_lab.app.streamlit_page import render_explorer
 from tiny_llm_lab.config import DataConfig, ExperimentConfig, ModelConfig, TrainingConfig
 from tiny_llm_lab.data import DatasetMetadata
-from tiny_llm_lab.model import DecoderOnlyTransformer, ModelOutput
+from tiny_llm_lab.model import DecoderOnlyTransformer, ModelInstrumentation, ModelOutput
 from tiny_llm_lab.tokenizer import BytePairTokenizer, CharacterTokenizer
 from tiny_llm_lab.training.checkpoint import load_inference_checkpoint, save_checkpoint
 
@@ -18,12 +18,19 @@ from tiny_llm_lab.training.checkpoint import load_inference_checkpoint, save_che
 class FixedLogitModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.config = SimpleNamespace(context_length=3, vocabulary_size=4)
+        self.config = SimpleNamespace(context_length=3, vocabulary_size=4, num_layers=1, num_heads=1)
         self.register_buffer("fixed_logits", torch.tensor([0.0, 1.0, 2.0, 3.0]))
 
     def forward(self, input_ids: Tensor, *, instrumentation: object | None = None) -> ModelOutput:
         batch_size, sequence_length = input_ids.shape
-        return ModelOutput(logits=self.fixed_logits.expand(batch_size, sequence_length, -1))
+        captured = None
+        if getattr(instrumentation, "attention_weights", False):
+            weights = torch.tril(torch.ones(batch_size, 1, sequence_length, sequence_length))
+            captured = ModelInstrumentation(attention_weights=(weights,))
+        return ModelOutput(
+            logits=self.fixed_logits.expand(batch_size, sequence_length, -1),
+            instrumentation=captured,
+        )
 
 
 def test_explorer_returns_token_rows_and_probability_ranked_predictions() -> None:
@@ -112,16 +119,23 @@ class FakeStreamlit:
         self.tables: list[list[dict[str, object]]] = []
         self.table_options: list[dict[str, object]] = []
         self.errors: list[str] = []
+        self.selectboxes: list[str] = []
+        self.figures: list[object] = []
 
     def title(self, value: str) -> None: pass
     def caption(self, value: str) -> None: pass
     def text_area(self, label: str, *, value: str) -> str: return value
     def number_input(self, label: str, **kwargs: object) -> object: return kwargs["value"]
+    def selectbox(self, label: str, options: range, **kwargs: object) -> int:
+        self.selectboxes.append(label)
+        return next(iter(options))
     def subheader(self, value: str) -> None: pass
     def dataframe(self, value: list[dict[str, object]], **kwargs: object) -> None:
         self.tables.append(value)
         self.table_options.append(kwargs)
     def error(self, value: str) -> None: self.errors.append(value)
+    def info(self, value: str) -> None: pass
+    def plotly_chart(self, figure: object, **kwargs: object) -> None: self.figures.append(figure)
 
 
 def test_streamlit_page_renders_prompt_controls_token_and_prediction_tables() -> None:
@@ -135,4 +149,6 @@ def test_streamlit_page_renders_prompt_controls_token_and_prediction_tables() ->
     assert page.tables[1][0]["Token"] == "d"
     assert page.tables[1][0]["Probability"].endswith("%")
     assert all(options["width"] == "stretch" for options in page.table_options)
+    assert page.selectboxes == ["Transformer layer", "Attention head"]
+    assert len(page.figures) == 1
     assert not page.errors
