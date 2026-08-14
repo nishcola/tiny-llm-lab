@@ -7,6 +7,7 @@ from tiny_llm_lab.data import TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
 from tiny_llm_lab.tokenizer import CharacterTokenizer
 from tiny_llm_lab.training.trainer import train_model
+from tiny_llm_lab.training.checkpoint import discover_timeline_run
 
 
 def training_fixture(tmp_path: Path, max_steps: int = 1) -> tuple[
@@ -43,6 +44,12 @@ def training_fixture(tmp_path: Path, max_steps: int = 1) -> tuple[
 
 def test_one_training_step_has_finite_loss_and_updates_parameters(tmp_path: Path) -> None:
     config, tokenizer, dataset, model = training_fixture(tmp_path)
+    config = ExperimentConfig(
+        model=config.model,
+        data=config.data,
+        tokenizer=config.tokenizer,
+        training=TrainingConfig(**{**config.training.__dict__, "run_name": "fixture"}),
+    )
     before = next(model.parameters()).detach().clone()
 
     result = train_model(model, dataset, tokenizer, config, device=torch.device("cpu"))
@@ -50,8 +57,11 @@ def test_one_training_step_has_finite_loss_and_updates_parameters(tmp_path: Path
     assert result.step == 1
     assert torch.isfinite(torch.tensor(result.validation_loss))
     assert not torch.equal(next(model.parameters()).detach(), before)
-    assert (config.training.output_dir / "latest.pt").is_file()
-    assert (config.training.output_dir / "step_000001.pt").is_file()
+    run_path = config.training.output_dir / "runs" / "fixture"
+    assert (run_path / "resume" / "latest.pt").is_file()
+    assert (run_path / "timeline" / "step_000001.pt").is_file()
+    assert (run_path / "run.json").is_file()
+    assert (run_path / "metrics.jsonl").is_file()
 
 
 def test_training_resume_starts_after_saved_step(tmp_path: Path) -> None:
@@ -72,3 +82,34 @@ def test_training_resume_starts_after_saved_step(tmp_path: Path) -> None:
     assert result.step == 2
     assert optimizer_steps == {1}
 
+
+def test_training_resume_appends_to_the_existing_timeline_run(tmp_path: Path) -> None:
+    config, tokenizer, dataset, model = training_fixture(tmp_path, max_steps=1)
+    config = ExperimentConfig(
+        model=config.model,
+        data=config.data,
+        tokenizer=config.tokenizer,
+        training=TrainingConfig(**{**config.training.__dict__, "run_name": "resume"}),
+    )
+    train_model(model, dataset, tokenizer, config, device=torch.device("cpu"))
+    run = discover_timeline_run(config.training.output_dir / "runs" / "resume")
+    resumed_config = ExperimentConfig(
+        model=config.model,
+        data=config.data,
+        tokenizer=config.tokenizer,
+        training=TrainingConfig(**{**config.training.__dict__, "max_steps": 2}),
+    )
+
+    train_model(
+        model,
+        dataset,
+        tokenizer,
+        resumed_config,
+        device=torch.device("cpu"),
+        start_step=1,
+        run=run,
+    )
+
+    discovered = discover_timeline_run(run.path)
+    assert [checkpoint.step for checkpoint in discovered.checkpoints] == [1, 2]
+    assert [metric.step for metric in discovered.metrics] == [1, 2]

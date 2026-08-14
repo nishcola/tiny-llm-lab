@@ -13,7 +13,13 @@ from tiny_llm_lab.config import ExperimentConfig
 from tiny_llm_lab.data import TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
 from tiny_llm_lab.tokenizer import Tokenizer
-from tiny_llm_lab.training.checkpoint import save_checkpoint
+from tiny_llm_lab.training.checkpoint import (
+    TimelineRun,
+    append_timeline_metric,
+    create_timeline_run,
+    save_checkpoint,
+    save_timeline_checkpoint,
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,7 @@ def train_model(
     device: torch.device | None = None,
     optimizer: torch.optim.Optimizer | None = None,
     start_step: int = 0,
+    run: TimelineRun | None = None,
 ) -> TrainingResult:
     training = config.training
     if start_step >= training.max_steps:
@@ -86,6 +93,12 @@ def train_model(
         model.parameters(),
         lr=training.learning_rate,
         weight_decay=training.weight_decay,
+    )
+    active_run = run or create_timeline_run(
+        training.output_dir,
+        config=config,
+        tokenizer=tokenizer,
+        dataset_metadata=dataset.metadata,
     )
     train_generator = torch.Generator().manual_seed(training.seed + start_step)
     eval_generator = torch.Generator().manual_seed(training.seed + 1)
@@ -120,6 +133,12 @@ def train_model(
                 eval_generator,
             )
             mean_training_loss = accumulated_loss / training.gradient_accumulation_steps
+            append_timeline_metric(
+                active_run,
+                step=completed_step,
+                training_loss=mean_training_loss,
+                validation_loss=latest_validation_loss,
+            )
             print(
                 f"step {completed_step}/{training.max_steps} "
                 f"train_loss={mean_training_loss:.4f} val_loss={latest_validation_loss:.4f}"
@@ -137,6 +156,12 @@ def train_model(
                     selected_device,
                     eval_generator,
                 )
+                append_timeline_metric(
+                    active_run,
+                    step=completed_step,
+                    training_loss=accumulated_loss / training.gradient_accumulation_steps,
+                    validation_loss=latest_validation_loss,
+                )
             checkpoint_arguments = {
                 "model": model,
                 "optimizer": active_optimizer,
@@ -147,9 +172,17 @@ def train_model(
                 "dataset_metadata": dataset.metadata,
             }
             save_checkpoint(
-                training.output_dir / f"step_{completed_step:06d}.pt",
+                active_run.path / "resume" / "latest.pt",
                 **checkpoint_arguments,
             )
-            save_checkpoint(training.output_dir / "latest.pt", **checkpoint_arguments)
+            save_timeline_checkpoint(
+                active_run,
+                model=model,
+                tokenizer=tokenizer,
+                config=config,
+                step=completed_step,
+                validation_loss=latest_validation_loss,
+                dataset_metadata=dataset.metadata,
+            )
 
     return TrainingResult(step=training.max_steps, validation_loss=latest_validation_loss)

@@ -52,6 +52,7 @@ eval_interval = 1
 eval_batches = 1
 checkpoint_interval = 1
 output_dir = "{checkpoint_dir.as_posix()}"
+run_name = "smoke"
 """.strip(),
         encoding="utf-8",
     )
@@ -59,7 +60,8 @@ output_dir = "{checkpoint_dir.as_posix()}"
     exit_code = main(["train", "--config", str(config_path)])
 
     assert exit_code == 0
-    assert (checkpoint_dir / "latest.pt").is_file()
+    assert (checkpoint_dir / "runs" / "smoke" / "resume" / "latest.pt").is_file()
+    assert (checkpoint_dir / "runs" / "smoke" / "timeline" / "step_000001.pt").is_file()
 
 
 def test_prepare_experiment_trains_configured_bpe_and_derives_model_vocabulary(tmp_path: Path) -> None:

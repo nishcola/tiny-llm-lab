@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -12,6 +13,11 @@ from tiny_llm_lab.app.formatting import format_token
 from tiny_llm_lab.inference import next_token_distribution
 from tiny_llm_lab.model import InstrumentationRequest
 from tiny_llm_lab.tokenizer import Tokenizer
+from tiny_llm_lab.training.checkpoint import (
+    TimelineCheckpoint,
+    TimelineRun,
+    load_timeline_checkpoint,
+)
 
 
 ATTENTION_DISPLAY_LIMIT = 32
@@ -22,6 +28,36 @@ class ExplorerSession:
     model: nn.Module
     tokenizer: Tokenizer
     device: torch.device
+
+
+class TimelineCheckpointCache:
+    """Small on-demand LRU cache for timeline models used by the explorer."""
+
+    def __init__(self, run: TimelineRun, device: torch.device, *, max_entries: int = 2) -> None:
+        if max_entries <= 0:
+            raise ValueError("max_entries must be positive")
+        self.run = run
+        self.device = device
+        self.max_entries = max_entries
+        self._sessions: OrderedDict[int, ExplorerSession] = OrderedDict()
+
+    def load(self, checkpoint: TimelineCheckpoint) -> ExplorerSession:
+        if checkpoint.step in self._sessions:
+            self._sessions.move_to_end(checkpoint.step)
+            return self._sessions[checkpoint.step]
+        loaded = load_timeline_checkpoint(self.run, checkpoint, map_location=self.device)
+        session = ExplorerSession(loaded.model, loaded.tokenizer, self.device)
+        self._sessions[checkpoint.step] = session
+        if len(self._sessions) > self.max_entries:
+            _, evicted = self._sessions.popitem(last=False)
+            del evicted
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
+        return session
+
+    @property
+    def cached_steps(self) -> tuple[int, ...]:
+        return tuple(self._sessions)
 
 
 @dataclass(frozen=True)
