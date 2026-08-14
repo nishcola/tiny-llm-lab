@@ -12,7 +12,7 @@ from tiny_llm_lab.tokenizer import CharacterTokenizer
 from tiny_llm_lab.app import explorer
 from tiny_llm_lab.app import streamlit_page
 from tiny_llm_lab.app.explorer import TimelineCheckpointCache
-from tiny_llm_lab.app.streamlit_page import render_timeline_explorer
+from tiny_llm_lab.app.streamlit_page import EmbeddingExplorerCache, render_timeline_explorer
 from tiny_llm_lab.training import checkpoint
 from tiny_llm_lab.training.checkpoint import (
     create_timeline_run,
@@ -204,3 +204,50 @@ def test_timeline_renderer_offers_steps_and_plots_available_loss_history(tmp_pat
     assert page.slider_options == [1]
     assert len(page.loss_plots) == 1
     assert page.errors == ["Enter a prompt to inspect its tokenization and predictions."]
+
+
+class FakeTimelineEmbeddingPage:
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+        self.figures: list[object] = []
+
+    def title(self, value: str) -> None: pass
+    def caption(self, value: str) -> None: pass
+    def info(self, value: str) -> None: pass
+    def error(self, value: str) -> None: self.errors.append(value)
+    def select_slider(self, label: str, *, options: list[int], value: int, **kwargs: object) -> int: return value
+    def subheader(self, value: str) -> None: pass
+    def line_chart(self, value: object, **kwargs: object) -> None: pass
+    def text_area(self, label: str, *, value: str) -> str: return ""
+    def number_input(self, label: str, **kwargs: object) -> object: return kwargs["value"]
+    def text_input(self, label: str, *, value: str) -> str: return "a"
+    def selectbox(self, label: str, options: tuple[int, ...], **kwargs: object) -> int: return options[0]
+    def dataframe(self, value: object, **kwargs: object) -> None: pass
+    def plotly_chart(self, figure: object, **kwargs: object) -> None: self.figures.append(figure)
+
+
+def test_timeline_renderer_caches_embedding_projection_by_verified_checkpoint_checksum(tmp_path: Path) -> None:
+    config, tokenizer, metadata = timeline_fixture(tmp_path)
+    run = create_timeline_run(config.training.output_dir, config=config, tokenizer=tokenizer, dataset_metadata=metadata)
+    save_timeline_checkpoint(
+        run,
+        model=DecoderOnlyTransformer(config.model),
+        tokenizer=tokenizer,
+        config=config,
+        step=1,
+        validation_loss=1.0,
+        dataset_metadata=metadata,
+    )
+    discovered = discover_timeline_run(run.path)
+    page = FakeTimelineEmbeddingPage()
+    cache_directory = tmp_path / "embedding-cache"
+
+    render_timeline_explorer(
+        page,
+        discovered,
+        TimelineCheckpointCache(discovered, torch.device("cpu")),
+        embedding_cache=EmbeddingExplorerCache(cache_directory),
+    )
+
+    assert (cache_directory / f"{discovered.checkpoints[0].sha256}.json").is_file()
+    assert len(page.figures) == 1

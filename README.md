@@ -97,6 +97,24 @@ heatmap. Future-token cells are visibly unavailable, and prompts longer than 32 
 first 32 tokens so labels remain readable. Prompts must contain at least one token and fit within the checkpoint's
 context limit.
 
+## Embedding explorer
+
+The explorer also projects the selected checkpoint's learned **input token embeddings** into two dimensions with
+centered PCA. PCA is the default because it is deterministic, lightweight, and makes the global embedding geometry
+easy to inspect without adding a dimensionality-reduction dependency. Search for a readable token label, choose a
+match, and inspect its ten nearest neighbors. Neighbor scores are cosine similarity in the original embedding space,
+not distances in the two-dimensional plot.
+
+PCA coordinates are cached as versioned JSON. Standalone checkpoints store cache files in
+`<checkpoint-parent>/.tiny_llm_lab/embedding_pca/`; timeline runs use
+`<run-directory>/embedding_pca/`. Timeline entries are keyed by the verified checkpoint checksum. Standalone entries
+are keyed by the checkpoint file's SHA-256, which is reused during Streamlit reruns while the path, size, and
+modification timestamp are unchanged. A missing, invalid, or unwritable cache falls back to recalculating PCA.
+
+The normal development vocabulary is plotted in full. For vocabularies over 20,000 tokens, PCA fits on a deterministic
+evenly spaced 20,000-token sample and then transforms every token. Plots show at most 10,000 points for browser
+responsiveness, while the selected token and its highlighted neighbors always remain visible.
+
 ## Tests
 
 ```powershell
