@@ -20,7 +20,7 @@ from tiny_llm_lab.training.checkpoint import discover_timeline_run
 from tiny_llm_lab.training.trainer import seed_everything, select_device, train_model
 
 
-MILESTONE_10_SEEDS = (1337, 2027)
+CONTROLLED_EXPERIMENT_SEEDS = (1337, 2027)
 
 
 @dataclass(frozen=True)
@@ -40,8 +40,8 @@ class PreparedCorpus:
     dataset: TextDataset
 
 
-def milestone_10_conditions() -> tuple[ExperimentCondition, ...]:
-    """Return the deliberately small, approved Milestone 10 comparison matrix."""
+def controlled_experiment_conditions() -> tuple[ExperimentCondition, ...]:
+    """Return the deliberately small controlled comparison matrix."""
     baseline = ExperimentConfig(
         model=ModelConfig(
             context_length=128,
@@ -64,7 +64,7 @@ def milestone_10_conditions() -> tuple[ExperimentCondition, ...]:
             eval_interval=100,
             eval_batches=20,
             checkpoint_interval=2000,
-            output_dir=Path("checkpoints/experiments/milestone-10"),
+            output_dir=Path("checkpoints/experiments/controlled"),
             max_timeline_checkpoints=2,
         ),
     )
@@ -142,17 +142,17 @@ def summarize_results(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return summaries
 
 
-def run_milestone_10(
+def run_controlled_experiments(
     corpus_path: str | Path,
     *,
-    output_dir: str | Path = Path("checkpoints/experiments/milestone-10"),
+    output_dir: str | Path = Path("checkpoints/experiments/controlled"),
     device: str = "auto",
 ) -> Path:
     """Execute the fixed suite and save a self-contained, descriptive result artifact."""
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
-    for condition in milestone_10_conditions():
+    for condition in controlled_experiment_conditions():
         prepared = prepare_corpus(
             corpus_path, tokenizer_kind=condition.tokenizer_kind, train_fraction=condition.config.data.train_fraction
         )
@@ -161,7 +161,7 @@ def run_milestone_10(
             model=replace(condition.config.model, vocabulary_size=prepared.tokenizer.vocabulary_size),
             data=replace(condition.config.data, path=Path(corpus_path)),
         )
-        for seed in MILESTONE_10_SEEDS:
+        for seed in CONTROLLED_EXPERIMENT_SEEDS:
             run_name = f"{condition.study}-{condition.name}-seed-{seed}"
             config = replace(
                 effective_config,
@@ -218,9 +218,9 @@ def run_milestone_10(
             }
             records.append(record)
             _write_json(output / "records.json", {"version": 1, "runs": records})
-    results = {"version": 1, "suite": "milestone-10", "runs": records, "summary": summarize_results(records)}
+    results = {"version": 1, "suite": "controlled", "runs": records, "summary": summarize_results(records)}
     _write_json(output / "results.json", results)
-    report = output / "milestone-10-results.md"
+    report = output / "controlled-experiment-results.md"
     report.write_text(_markdown_report(results), encoding="utf-8")
     return output
 
@@ -243,7 +243,7 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _markdown_report(results: dict[str, Any]) -> str:
-    lines = ["# Milestone 10 Results", "", "Two-seed descriptive observations; no significance or causal claims are made.", "", "| Study | Condition | Validation loss (mean [range]) | Approx. bits per byte (mean [range]) | Parameters | Mean training time |", "| --- | --- | --- | --- | ---: | ---: |"]
+    lines = ["# Controlled Experiment Results", "", "Two-seed descriptive observations; no significance or causal claims are made.", "", "| Study | Condition | Validation loss (mean [range]) | Approx. bits per byte (mean [range]) | Parameters | Mean training time |", "| --- | --- | --- | --- | ---: | ---: |"]
     for item in results["summary"]:
         low, high = item["validation_loss_range"]
         bpb_low, bpb_high = item["bits_per_byte_range"]

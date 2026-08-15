@@ -3,17 +3,17 @@ from pathlib import Path
 import pytest
 
 from tiny_llm_lab.experiments import (
-    MILESTONE_10_SEEDS,
-    milestone_10_conditions,
+    CONTROLLED_EXPERIMENT_SEEDS,
+    controlled_experiment_conditions,
     prepare_corpus,
     summarize_results,
 )
 
 
-def test_milestone_10_conditions_are_the_approved_seven_runs() -> None:
-    conditions = milestone_10_conditions()
+def test_controlled_experiment_conditions_define_the_seven_runs() -> None:
+    conditions = controlled_experiment_conditions()
 
-    assert MILESTONE_10_SEEDS == (1337, 2027)
+    assert CONTROLLED_EXPERIMENT_SEEDS == (1337, 2027)
     assert [(item.study, item.name) for item in conditions] == [
         ("tokenization", "character"),
         ("tokenization", "byte-bpe-320"),

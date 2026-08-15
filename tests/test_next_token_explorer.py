@@ -7,7 +7,12 @@ from torch import Tensor, nn
 
 from tiny_llm_lab.app.explorer import ExplorerSession, inspect_next_token
 from tiny_llm_lab.app.formatting import format_token
-from tiny_llm_lab.app.streamlit_page import render_explorer, render_intervention_explorer
+from tiny_llm_lab.app.streamlit_page import (
+    LAB_SECTIONS,
+    render_explorer,
+    render_intervention_explorer,
+    select_lab_section,
+)
 from tiny_llm_lab.config import DataConfig, ExperimentConfig, ModelConfig, TrainingConfig
 from tiny_llm_lab.data import DatasetMetadata
 from tiny_llm_lab.model import DecoderOnlyTransformer, ModelInstrumentation, ModelOutput
@@ -154,6 +159,21 @@ def test_streamlit_page_renders_prompt_controls_token_and_prediction_tables() ->
     assert not page.errors
 
 
+def test_quick_tour_empty_prompt_skips_embedding_work() -> None:
+    page = FakeStreamlit()
+    session = ExplorerSession(FixedLogitModel(), CharacterTokenizer.from_text("abcd"), torch.device("cpu"))
+
+    render_explorer(
+        page,
+        session,
+        embedding_cache=object(),
+        checkpoint_digest="fixture",
+        views=("next_token", "attention"),
+    )
+
+    assert page.errors == ["Enter a prompt to inspect its tokenization and predictions."]
+
+
 class InterventionPage:
     def __init__(self) -> None:
         self.captions: list[str] = []
@@ -186,3 +206,17 @@ def test_intervention_view_shows_checkpoint_safety_and_changed_token_comparison(
     assert page.tables[0][0].keys() == {
         "Token", "Baseline probability", "Modified probability", "Change"
     }
+
+
+class NavigationPage:
+    class Sidebar:
+        def radio(self, label: str, options: tuple[str, ...]) -> str:
+            assert label == "Lab section"
+            assert options == LAB_SECTIONS
+            return "Quick Tour"
+
+    sidebar = Sidebar()
+
+
+def test_lab_navigation_exposes_the_guided_demo_sections() -> None:
+    assert select_lab_section(NavigationPage()) == "Quick Tour"
