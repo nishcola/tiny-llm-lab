@@ -103,7 +103,7 @@ Each block first applies layer normalization, then creates queries, keys, and
 values with one affine projection split into three tensors:
 
 $$
-[Q,K,V] = \operatorname{LN}(H)W_{QKV}+b_{QKV}.
+[Q,K,V] = \mathrm{LN}(H)W_{QKV}+b_{QKV}.
 $$
 
 For head $r$, the unmasked score from query position $t$ to key position $s$
@@ -124,7 +124,7 @@ S^{(r)}_{t,s}, & s\leq t,\\
 -\infty, & s>t.
 \end{cases}
 \qquad
-A^{(r)}_{t,:}=\operatorname{softmax}(\widetilde{S}^{(r)}_{t,:}).
+A^{(r)}_{t,:}=\mathrm{softmax}(\widetilde{S}^{(r)}_{t,:}).
 $$
 
 Because $\exp(-\infty)=0$, the softmax assigns exactly zero attention
@@ -133,8 +133,8 @@ vectors:
 
 $$
 O^{(r)}=A^{(r)}V^{(r)},\qquad
-\operatorname{Attn}(H)=
-\operatorname{Concat}(O^{(1)},\ldots,O^{(h)})W_O+b_O.
+\mathrm{Attn}(H)=
+\mathrm{Concat}(O^{(1)},\ldots,O^{(h)})W_O+b_O.
 $$
 
 ### Decoder block and vocabulary logits
@@ -145,8 +145,8 @@ added to its input, then a normalized two-layer MLP is added:
 $$
 \begin{aligned}
 U^{(\ell)} &= H^{(\ell-1)} +
-  \operatorname{Attn}(\operatorname{LN}_1(H^{(\ell-1)})),\\
-M^{(\ell)} &= \operatorname{GELU}(U^{(\ell)}W_1+b_1),\\
+  \mathrm{Attn}(\mathrm{LN}_1(H^{(\ell-1)})),\\
+M^{(\ell)} &= \mathrm{GELU}(U^{(\ell)}W_1+b_1),\\
 H^{(\ell)} &= U^{(\ell)} +
   (M^{(\ell)}W_2+b_2).
 \end{aligned}
@@ -154,14 +154,14 @@ $$
 
 The implementation uses the exact GELU activation,
 $
-\operatorname{GELU}(z)=z\Phi(z)
-=\tfrac12z\left(1+\operatorname{erf}(z/\sqrt2)\right),
+\mathrm{GELU}(z)=z\Phi(z)
+=\tfrac12z\left(1+\mathrm{erf}(z/\sqrt2)\right),
 $
 which smoothly gates each MLP feature. Layer normalization normalizes each
 token's $d$ features before applying learned scale and bias:
 
 $$
-\operatorname{LN}(z)=\gamma\odot
+\mathrm{LN}(z)=\gamma\odot
 \frac{z-\mu(z)}{\sqrt{\sigma^2(z)+\varepsilon}}+\beta.
 $$
 
@@ -169,7 +169,7 @@ After the final normalization, the language-model head produces one logit for
 every vocabulary item:
 
 $$
-z_t=\operatorname{LN}_{\mathrm{final}}(H^{(L)}_t)W_{\mathrm{vocab}}.
+z_t=\mathrm{LN}_{\mathrm{final}}(H^{(L)}_t)W_{\mathrm{vocab}}.
 $$
 
 ### Probabilities, loss, and updates
@@ -214,7 +214,7 @@ loss $\mathcal{L}_{\mathrm{val}}$, $N_{\mathrm{tok}}$ validation tokens, and
 $N_{\mathrm{byte}}$ UTF-8 bytes:
 
 $$
-\operatorname{bits/byte}\approx
+\mathrm{bits/byte}\approx
 \frac{\mathcal{L}_{\mathrm{val}}N_{\mathrm{tok}}}
 {N_{\mathrm{byte}}\ln 2}.
 $$
@@ -236,7 +236,7 @@ sample when the vocabulary is large, then every embedding is projected.
 Nearest neighbors use cosine similarity in the original embedding space:
 
 $$
-\operatorname{cosine}(e_i,e_j)=
+\mathrm{cosine}(e_i,e_j)=
 \frac{e_i^\mathsf{T}e_j}{\lVert e_i\rVert_2\lVert e_j\rVert_2}.
 $$
 
