@@ -41,6 +41,20 @@ from tiny_llm_lab.training.checkpoint import (
 from tiny_llm_lab.training.trainer import select_device
 
 
+LAB_SECTIONS = ("Quick Tour", "Explorers", "Timeline", "Experiment Results")
+
+
+def select_lab_section(page: Any) -> str:
+    """Return the top-level demo section selected from Streamlit's sidebar."""
+    return str(page.sidebar.radio("Lab section", LAB_SECTIONS))
+
+
+def render_demo_guide(page: Any) -> None:
+    page.title("Tiny Language Model Lab")
+    page.caption("Guided demo: inspect a prediction, view its causal attention, then compare training checkpoints.")
+    page.info("Try `ROMEO:` or `To be, or not to be,` with temperature 0.8. Select a layer and head, then switch to Timeline to see how predictions change during training.")
+
+
 class EmbeddingExplorerCache:
     """Memory and disk projection cache scoped to one Streamlit explorer session."""
 
@@ -69,6 +83,7 @@ def render_explorer(
     default_prompt: str = "",
     embedding_cache: EmbeddingExplorerCache | None = None,
     checkpoint_digest: str | None = None,
+    views: tuple[str, ...] = ("next_token", "attention", "interventions", "activations", "embeddings"),
 ) -> None:
     """Render the page against Streamlit or a compatible test double."""
     page.title("Next-Token Explorer")
@@ -86,7 +101,7 @@ def render_explorer(
     )
     if not prompt:
         page.error("Enter a prompt to inspect its tokenization and predictions.")
-        if embedding_cache is not None and checkpoint_digest is not None:
+        if "embeddings" in views and embedding_cache is not None and checkpoint_digest is not None:
             render_embedding_explorer(page, session, embedding_cache, checkpoint_digest=checkpoint_digest)
         return
     page.subheader("Attention Explorer")
@@ -132,22 +147,23 @@ def render_explorer(
         hide_index=True,
         width="stretch",
     )
-    render_intervention_explorer(
-        page,
-        session,
-        prompt,
-        temperature=temperature,
-        display_count=display_count,
-    )
+    if "interventions" in views:
+        render_intervention_explorer(
+            page,
+            session,
+            prompt,
+            temperature=temperature,
+            display_count=display_count,
+        )
     if inspection.attention.was_truncated:
         page.info(
             f"Showing attention for the first {len(inspection.attention.view.token_labels)} "
             "tokens to keep the matrix readable."
         )
     render_attention_heatmap(page, inspection.attention.view)
-    if hasattr(session.model.config, "mlp_dim"):
+    if "activations" in views and hasattr(session.model.config, "mlp_dim"):
         render_activation_explorer(page, session, prompt)
-    if embedding_cache is not None and checkpoint_digest is not None:
+    if "embeddings" in views and embedding_cache is not None and checkpoint_digest is not None:
         render_embedding_explorer(page, session, embedding_cache, checkpoint_digest=checkpoint_digest)
 
 
@@ -162,7 +178,7 @@ def render_intervention_explorer(
     """Render one temporary inference-time intervention and its distribution delta."""
     page.subheader("Model Interventions")
     page.caption(
-        "Temporary inference-time intervention — saved checkpoint weights are unchanged. "
+        "Temporary inference-time intervention: saved checkpoint weights are unchanged. "
         "This comparison is exploratory and does not establish a unit's meaning."
     )
     selection = page.selectbox(
@@ -498,6 +514,7 @@ def render_timeline_explorer(
     *,
     default_prompt: str = "",
     embedding_cache: EmbeddingExplorerCache | None = None,
+    views: tuple[str, ...] = ("next_token", "attention", "interventions", "activations", "embeddings"),
 ) -> None:
     """Render one checkpoint at a time while retaining a bounded model cache."""
     page.title("Training Checkpoint Timeline")
@@ -533,12 +550,13 @@ def render_timeline_explorer(
         default_prompt=default_prompt,
         embedding_cache=embedding_cache,
         checkpoint_digest=checkpoint.sha256 if embedding_cache is not None else None,
+        views=views,
     )
 
 
 def _checkpoint_label(checkpoint: Any) -> str:
     loss = "not evaluated" if checkpoint.validation_loss is None else f"val loss {checkpoint.validation_loss:.4f}"
-    return f"Step {checkpoint.step:,} — {loss}"
+    return f"Step {checkpoint.step:,}: {loss}"
 
 
 def _render_loss_plot(page: Any, run: TimelineRun) -> None:
@@ -568,6 +586,7 @@ def main() -> None:
     if arguments.experiments is not None:
         render_experiment_results(st, arguments.experiments)
         return
+    section = select_lab_section(st)
     try:
         device = select_device(arguments.device)
         if arguments.checkpoint is not None:
@@ -587,6 +606,11 @@ def main() -> None:
             st.session_state[embedding_key] = EmbeddingExplorerCache(
                 arguments.checkpoint.parent / ".tiny_llm_lab" / "embedding_pca"
             )
+        if section == "Quick Tour":
+            render_demo_guide(st)
+        if section in {"Timeline", "Experiment Results"}:
+            st.info("This section needs a timeline run or experiment-results directory. See the README launch commands.")
+            return
         render_explorer(
             st,
             ExplorerSession(
@@ -597,6 +621,7 @@ def main() -> None:
             ),
             embedding_cache=st.session_state[embedding_key],
             checkpoint_digest=st.session_state[digest_key].digest(arguments.checkpoint),
+            views=("next_token", "attention") if section == "Quick Tour" else ("next_token", "attention", "interventions", "activations", "embeddings"),
         )
         return
     cache_key = f"timeline-cache:{run.path.resolve()}:{device.type}"
@@ -605,11 +630,17 @@ def main() -> None:
     embedding_key = f"embedding-projection-cache:{run.path.resolve()}"
     if embedding_key not in st.session_state:
         st.session_state[embedding_key] = EmbeddingExplorerCache(run.path / "embedding_pca")
+    if section == "Experiment Results":
+        st.info("Launch the experiment-results view with `--experiments <directory>`.")
+        return
+    if section == "Quick Tour":
+        render_demo_guide(st)
     render_timeline_explorer(
         st,
         run,
         st.session_state[cache_key],
         embedding_cache=st.session_state[embedding_key],
+        views=("next_token", "attention") if section == "Quick Tour" else ("next_token", "attention", "interventions", "activations", "embeddings"),
     )
 
 

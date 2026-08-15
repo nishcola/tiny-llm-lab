@@ -7,6 +7,7 @@ from dataclasses import replace
 import hashlib
 from pathlib import Path
 from typing import Sequence
+from urllib.error import URLError
 from urllib.request import urlopen
 
 import torch
@@ -14,7 +15,7 @@ import torch
 from tiny_llm_lab.config import ExperimentConfig, load_config
 from tiny_llm_lab.data import DatasetMetadata, TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
-from tiny_llm_lab.experiments import run_milestone_10
+from tiny_llm_lab.experiments import run_controlled_experiments
 from tiny_llm_lab.tokenizer import BytePairTokenizer, CharacterTokenizer, Tokenizer
 from tiny_llm_lab.training.checkpoint import TimelineRun, discover_timeline_run, load_checkpoint
 from tiny_llm_lab.training.trainer import select_device, train_model
@@ -118,27 +119,38 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_parser = subparsers.add_parser("experiment", help="Run a fixed controlled experiment suite")
     experiment_subparsers = experiment_parser.add_subparsers(dest="experiment_command", required=True)
     experiment_run = experiment_subparsers.add_parser("run", help="Run one approved experiment suite")
-    experiment_run.add_argument("--suite", choices=("milestone-10",), required=True)
+    experiment_run.add_argument("--suite", choices=("controlled",), required=True)
     experiment_run.add_argument("--data", type=Path, default=Path("data/tiny_shakespeare.txt"))
-    experiment_run.add_argument("--output", type=Path, default=Path("checkpoints/experiments/milestone-10"))
+    experiment_run.add_argument("--output", type=Path, default=Path("checkpoints/experiments/controlled"))
     experiment_run.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     return parser
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    parsed = build_parser().parse_args(arguments)
-    if parsed.command == "download-data":
-        metadata = download_corpus(parsed.url, parsed.output)
-        print(
-            f"downloaded {metadata.byte_count} bytes to {parsed.output}; "
-            f"sha256={metadata.sha256}"
-        )
-        return 0
-    if parsed.command == "experiment":
-        run_milestone_10(parsed.data, output_dir=parsed.output, device=parsed.device)
-        print(f"experiment results written to {parsed.output}")
-        return 0
-    return _run_train(parsed.config, parsed.resume)
+    parser = build_parser()
+    parsed = parser.parse_args(arguments)
+    try:
+        if parsed.command == "download-data":
+            metadata = download_corpus(parsed.url, parsed.output)
+            print(
+                f"downloaded {metadata.byte_count} bytes to {parsed.output}; "
+                f"sha256={metadata.sha256}"
+            )
+            return 0
+        if parsed.command == "experiment":
+            run_controlled_experiments(parsed.data, output_dir=parsed.output, device=parsed.device)
+            print(f"experiment results written to {parsed.output}")
+            return 0
+        return _run_train(parsed.config, parsed.resume)
+    except URLError as error:
+        parser.error(f"Could not download corpus: {error.reason}")
+    except FileNotFoundError as error:
+        parser.error(f"Required file was not found: {error.filename}")
+    except UnicodeDecodeError:
+        parser.error("Corpus must be valid UTF-8 text.")
+    except (OSError, RuntimeError, ValueError) as error:
+        parser.error(str(error))
+    return 2
 
 
 if __name__ == "__main__":

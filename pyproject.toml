@@ -9,7 +9,6 @@ description = "A small, inspectable decoder-only transformer built with PyTorch 
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "numpy>=2,<3",
     "torch>=2.6,<3",
 ]
 

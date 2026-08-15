@@ -72,3 +72,13 @@ def test_tokenizer_config_defaults_to_bpe_and_accepts_character_mode() -> None:
     assert TokenizerConfig(kind="character").kind == "character"
     with pytest.raises(ValueError, match="kind"):
         TokenizerConfig(kind="wordpiece")
+
+
+def test_checked_in_smoke_config_is_a_cpu_safe_short_run() -> None:
+    config = load_config(Path(__file__).parents[1] / "configs" / "smoke.toml")
+
+    assert config.training.device == "cpu"
+    assert config.training.max_steps == 25
+    assert config.training.output_dir == Path("checkpoints/smoke")
+    assert config.training.run_name is None
+    assert config.tokenizer.kind == "character"

@@ -1,0 +1,6 @@
+# CPU fallback for Windows, Python 3.12. It is slower but supports every lab workflow.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.13.0+cpu
+pytest==8.4.2
+streamlit==1.61.1
+plotly==6.9.0

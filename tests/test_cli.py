@@ -1,5 +1,8 @@
 from hashlib import sha256
 from pathlib import Path
+from urllib.error import URLError
+
+import pytest
 
 from tiny_llm_lab.cli import _prepare_experiment, download_corpus, main
 from tiny_llm_lab.config import load_config
@@ -18,6 +21,21 @@ def test_download_corpus_writes_bytes_and_reports_digest(tmp_path: Path) -> None
     assert metadata.source == source.as_uri()
     assert metadata.byte_count == len(content)
     assert metadata.sha256 == sha256(content).hexdigest()
+
+
+def test_download_cli_reports_network_failures_without_a_traceback(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    def unavailable(*args: object, **kwargs: object) -> object:
+        raise URLError("offline")
+
+    monkeypatch.setattr("tiny_llm_lab.cli.urlopen", unavailable)
+
+    with pytest.raises(SystemExit) as error:
+        main(["download-data", "--output", str(tmp_path / "corpus.txt")])
+
+    captured = capsys.readouterr()
+    assert error.value.code == 2
+    assert "Could not download corpus" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_train_cli_smoke_run_writes_checkpoint(tmp_path: Path) -> None:
