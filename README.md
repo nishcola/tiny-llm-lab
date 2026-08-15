@@ -4,6 +4,11 @@ Tiny Language Model Lab is an interactive, local inspection lab for a small deco
 
 The goal is to show the model, data path, experiments, and tradeoffs without requiring a large GPU or a pretrained-model API.
 
+# Gallery
+
+<img width="830" height="846" alt="Screenshot 2026-08-14 235404" src="https://github.com/user-attachments/assets/fd647d58-eee6-49ee-bd0d-8a0a2913b8d2" />
+
+
 ## What is implemented
 
 From scratch with PyTorch primitives:
