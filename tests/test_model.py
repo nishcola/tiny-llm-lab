@@ -85,3 +85,25 @@ def test_model_requires_vocabulary_size() -> None:
 
     with pytest.raises(ValueError, match="vocabulary_size"):
         DecoderOnlyTransformer(config)
+
+
+def test_sinusoidal_positions_are_non_trainable_and_change_by_position() -> None:
+    config = ModelConfig(
+        vocabulary_size=11,
+        context_length=8,
+        embedding_dim=16,
+        num_layers=2,
+        num_heads=4,
+        mlp_dim=32,
+        dropout=0.0,
+        position_encoding="sinusoidal",
+    )
+
+    model = DecoderOnlyTransformer(config)
+
+    assert model.position_embeddings is None
+    assert "position_encoding" not in dict(model.named_parameters())
+    assert model.position_encoding.shape == (8, 16)
+    torch.testing.assert_close(model.position_encoding[0, 0::2], torch.zeros(8))
+    torch.testing.assert_close(model.position_encoding[0, 1::2], torch.ones(8))
+    assert not torch.equal(model.position_encoding[0], model.position_encoding[1])

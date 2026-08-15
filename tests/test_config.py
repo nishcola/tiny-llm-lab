@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tiny_llm_lab.config import ExperimentConfig, ModelConfig, load_config
+from tiny_llm_lab.config import ExperimentConfig, ModelConfig, TokenizerConfig, load_config
 
 
 def test_load_config_resolves_expected_values(tmp_path: Path) -> None:
@@ -44,3 +44,31 @@ def test_model_config_rejects_incompatible_heads() -> None:
             num_heads=4,
             mlp_dim=32,
         )
+
+
+def test_model_config_defaults_to_learned_positions_and_validates_position_encoding() -> None:
+    config = ModelConfig(
+        context_length=8,
+        embedding_dim=16,
+        num_layers=2,
+        num_heads=4,
+        mlp_dim=32,
+    )
+
+    assert config.position_encoding == "learned"
+    with pytest.raises(ValueError, match="position_encoding"):
+        ModelConfig(
+            context_length=8,
+            embedding_dim=16,
+            num_layers=2,
+            num_heads=4,
+            mlp_dim=32,
+            position_encoding="rotary",
+        )
+
+
+def test_tokenizer_config_defaults_to_bpe_and_accepts_character_mode() -> None:
+    assert TokenizerConfig().kind == "byte_pair"
+    assert TokenizerConfig(kind="character").kind == "character"
+    with pytest.raises(ValueError, match="kind"):
+        TokenizerConfig(kind="wordpiece")

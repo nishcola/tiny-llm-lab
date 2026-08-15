@@ -17,6 +17,7 @@ class ModelConfig:
     mlp_dim: int
     dropout: float = 0.0
     vocabulary_size: int | None = None
+    position_encoding: str = "learned"
 
     def __post_init__(self) -> None:
         for name in ("context_length", "embedding_dim", "num_layers", "num_heads", "mlp_dim"):
@@ -28,6 +29,8 @@ class ModelConfig:
             raise ValueError("dropout must be in [0, 1)")
         if self.vocabulary_size is not None and self.vocabulary_size <= 0:
             raise ValueError("vocabulary_size must be positive when provided")
+        if self.position_encoding not in {"learned", "sinusoidal"}:
+            raise ValueError("position_encoding must be 'learned' or 'sinusoidal'")
 
 
 @dataclass(frozen=True)
@@ -44,9 +47,12 @@ class DataConfig:
 @dataclass(frozen=True)
 class TokenizerConfig:
     vocabulary_size: int = 320
+    kind: str = "byte_pair"
 
     def __post_init__(self) -> None:
-        if self.vocabulary_size < 256:
+        if self.kind not in {"byte_pair", "character"}:
+            raise ValueError("tokenizer kind must be 'byte_pair' or 'character'")
+        if self.kind == "byte_pair" and self.vocabulary_size < 256:
             raise ValueError("tokenizer vocabulary_size must be at least 256 for byte-level BPE")
 
 

@@ -50,6 +50,19 @@ tiny-llm train --config configs/dev.toml --resume checkpoints/runs/<run-id>/resu
 
 The development configuration uses FP32 and is intentionally small enough for a GTX 1650 SUPER with 4 GB VRAM. Set `device = "cpu"` in a copied configuration to force CPU training.
 
+## Controlled experiments
+
+Milestone 10 contains a deliberately small, reproducible suite: character versus byte-BPE tokenization, learned versus sinusoidal positional information, and 2/4/8 attention heads at fixed model width. It runs seven conditions for seeds `1337` and `2027`; each run uses 2,000 updates, so the full CUDA suite is expected to take roughly 20–30 minutes on the target GTX 1650 SUPER.
+
+```powershell
+tiny-llm experiment run --suite milestone-10 --data data/tiny_shakespeare.txt --device cuda
+streamlit run src/tiny_llm_lab/app/streamlit_page.py -- --experiments checkpoints/experiments/milestone-10
+```
+
+Artifacts record the full configuration, corpus digest and split, losses, parameter count, timing, memory, final checkpoint, and fixed-prompt samples. The tokenizer comparison reports approximate bits per byte, derived from the deterministic sampled validation loss, because token-level cross-entropy is not directly comparable across different tokenizations. The two seed replicas are descriptive only: results should not be read as statistical-significance or causal claims.
+
+The measured two-seed results are summarized in [Milestone 10 results](docs/milestone-10-results.md).
+
 ## Inference and inspection
 
 The inference API operates on token IDs and does not depend on a UI framework. Inspect the final-position distribution or generate a continuation:
