@@ -67,15 +67,15 @@ The detailed design, tensor-capture boundaries, checkpoint metadata, and reprodu
 
 ## Mathematical foundations
 
-Let \`B\` be batch size, \`T\` sequence length, \`d\` model width, \`h\` the number
-of attention heads, \`d_h = d / h\` one head's width, and \`|V|\` vocabulary size.
+Let B be batch size, T sequence length, d model width, h the number of
+attention heads, d_h = d / h one head's width, and |V| vocabulary size.
 The equations below describe the core forward pass without dropout; during
 training, the implementation also applies dropout to embeddings, attention
 weights, and MLP outputs.
 
 ### Inputs and positions
 
-For token IDs \`x_1, ..., x_T\`, the initial representation at position \`t\` is
+For token IDs x_1 through x_T, the initial representation at position t is
 the sum of a learned token vector and a position vector:
 
 $$
@@ -84,7 +84,7 @@ $$
 
 The default position table is learned. The alternative fixed table used in the
 position experiment is the standard sinusoidal construction, for even index
-\`2i\`:
+2i:
 
 $$
 P_{t,2i}=\sin\left(\frac{t}{10000^{2i/d}}\right),
@@ -105,16 +105,16 @@ $$
 [Q,K,V] = \mathrm{LN}(H)W_{QKV}+b_{QKV}.
 $$
 
-For head \`r\`, the unmasked score from query position \`t\` to key position \`s\`
+For head r, the unmasked score from query position t to key position s
 is the scaled dot product
 
 $$
 S^{(r)}_{t,s}=\frac{Q^{(r)}_t(K^{(r)}_s)^\mathsf{T}}{\sqrt{d_h}}.
 $$
 
-The division by \`sqrt(d_h)\` keeps score magnitudes from growing with head
+The division by sqrt(d_h) keeps score magnitudes from growing with head
 width. The causal mask turns every score for a future token into
-\`-infinity\`:
+-infinity:
 
 $$
 \widetilde{S}^{(r)}_{t,s} =
@@ -126,7 +126,7 @@ S^{(r)}_{t,s}, & s\leq t,\\
 A^{(r)}_{t,:}=\mathrm{softmax}(\widetilde{S}^{(r)}_{t,:}).
 $$
 
-Because \`exp(-infinity) = 0\`, the softmax assigns exactly zero attention
+Because exp(-infinity) = 0, the softmax assigns exactly zero attention
 probability to every future position. Each head mixes only the allowed value
 vectors:
 
@@ -138,7 +138,7 @@ $$
 
 ### Decoder block and vocabulary logits
 
-This is a pre-normalized residual transformer. For block \`l\`, attention is
+This is a pre-normalized residual transformer. For block l, attention is
 added to its input, then a normalized two-layer MLP is added:
 
 $$
@@ -159,7 +159,7 @@ $$
 =\frac{1}{2}z\left(1+\mathrm{erf}(z/\sqrt{2})\right).
 $$
 
-Layer normalization normalizes each token's \`d\` features before applying
+Layer normalization normalizes each token's d features before applying
 learned scale and bias:
 
 $$
@@ -183,8 +183,8 @@ p_\theta(y=k\mid x_{\leq t})=
 \frac{\exp(z_{t,k})}{\sum_{j=1}^{|\mathcal{V}|}\exp(z_{t,j})}.
 $$
 
-For target token \`y_t\`, PyTorch cross-entropy is the negative log probability.
-The model averages it across the \`B * T\` target positions in a batch:
+For target token y_t, PyTorch cross-entropy is the negative log probability.
+The model averages it across the B * T target positions in a batch:
 
 $$
 \mathcal{L}=
@@ -192,8 +192,8 @@ $$
 \log p_\theta(y_{b,t}\mid x_{b,\leq t}).
 $$
 
-With \`a\` gradient-accumulation microbatches, the trainer backpropagates
-\`L_i / a\` for each one before one AdamW step. By linearity of
+With a gradient-accumulation microbatches, the trainer backpropagates
+L_i / a for each one before one AdamW step. By linearity of
 differentiation, this produces the average gradient
 
 $$
@@ -201,7 +201,7 @@ g=\frac{1}{a}\sum_{i=1}^{a}\nabla_\theta\mathcal{L}_i.
 $$
 
 Before the update, global-norm clipping limits its magnitude to the configured
-maximum \`c\`:
+maximum c:
 
 $$
 g_{\mathrm{clip}}=g\min\left(1,\frac{c}{\lVert g\rVert_2}\right).
@@ -212,7 +212,7 @@ $$
 Token-level loss is measured in natural-log units per token, so it is not
 directly comparable when tokenizers produce different numbers of tokens. The
 experiment runner reports approximate bits per byte for a sampled validation
-loss \`L_val\`, \`N_tok\` validation tokens, and \`N_byte\` UTF-8 bytes:
+loss L_val, N_tok validation tokens, and N_byte UTF-8 bytes:
 
 $$
 \mathrm{bits/byte}\approx
@@ -221,18 +221,18 @@ $$
 $$
 
 Multiplying restores total negative log likelihood in nats, dividing by
-\`ln 2\` converts nats to bits, and normalizing by bytes puts the tokenizer
+ln 2 converts nats to bits, and normalizing by bytes puts the tokenizer
 conditions on the same approximate unit.
 
-The embedding explorer projects a centered embedding matrix \`X\` into two
+The embedding explorer projects a centered embedding matrix X into two
 dimensions with principal-component analysis. If
-\`X_c = X - 1 mu^T = U Sigma V^T\`, it displays
+X_c = X - 1 mu^T = U Sigma V^T, it displays
 
 $$
 Z=X_cV_{[:,1:2]}.
 $$
 
-In the implementation, \`mu\` and \`V\` are fitted on a deterministic bounded
+In the implementation, mu and V are fitted on a deterministic bounded
 sample when the vocabulary is large, then every embedding is projected.
 Nearest neighbors use cosine similarity in the original embedding space:
 
