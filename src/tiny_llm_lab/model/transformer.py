@@ -9,6 +9,7 @@ from torch import Tensor, nn
 from torch.nn import functional as functional
 
 from tiny_llm_lab.config import ModelConfig
+from tiny_llm_lab.interventions import InterventionSet
 from tiny_llm_lab.model.attention import CausalSelfAttention
 
 
@@ -71,8 +72,16 @@ class FeedForward(nn.Module):
             nn.Dropout(config.dropout),
         )
 
-    def forward(self, inputs: Tensor, return_activation: bool = False) -> tuple[Tensor, Tensor | None]:
+    def forward(
+        self,
+        inputs: Tensor,
+        return_activation: bool = False,
+        interventions: InterventionSet | None = None,
+        layer_index: int | None = None,
+    ) -> tuple[Tensor, Tensor | None]:
         activations = self.layers[1](self.layers[0](inputs))
+        if interventions is not None and layer_index is not None and interventions.enabled:
+            activations = interventions.apply_mlp_activations(layer_index, activations)
         outputs = self.layers[3](self.layers[2](activations))
         return outputs, activations if return_activation else None
 
@@ -89,6 +98,8 @@ class DecoderBlock(nn.Module):
         self,
         inputs: Tensor,
         instrumentation: InstrumentationRequest | None,
+        interventions: InterventionSet | None = None,
+        layer_index: int | None = None,
     ) -> tuple[Tensor, Tensor | None, Tensor | None, Tensor | None]:
         capture_attention_weights = instrumentation is not None and instrumentation.attention_weights
         capture_attention_outputs = instrumentation is not None and instrumentation.attention_outputs
@@ -96,11 +107,15 @@ class DecoderBlock(nn.Module):
         attention_output, weights = self.attention(
             self.attention_norm(inputs),
             return_attention=capture_attention_weights,
+            interventions=interventions,
+            layer_index=layer_index,
         )
         hidden_states = inputs + attention_output
         mlp_output, mlp_activations = self.mlp(
             self.mlp_norm(hidden_states),
             return_activation=capture_mlp_activations,
+            interventions=interventions,
+            layer_index=layer_index,
         )
         hidden_states = hidden_states + mlp_output
         return (
@@ -138,6 +153,7 @@ class DecoderOnlyTransformer(nn.Module):
         targets: Tensor | None = None,
         instrumentation: InstrumentationRequest | None = None,
         return_attentions: bool | None = None,
+        interventions: InterventionSet | None = None,
     ) -> ModelOutput:
         if input_ids.ndim != 2:
             raise ValueError("input_ids must have shape (batch, sequence)")
@@ -150,6 +166,12 @@ class DecoderOnlyTransformer(nn.Module):
             if instrumentation is not None:
                 raise ValueError("use either instrumentation or return_attentions, not both")
             instrumentation = InstrumentationRequest(attention_weights=return_attentions)
+        if interventions is not None and interventions.enabled:
+            interventions.validate(
+                num_layers=self.config.num_layers,
+                num_heads=self.config.num_heads,
+                mlp_dim=self.config.mlp_dim,
+            )
 
         positions = torch.arange(sequence_length, device=input_ids.device)
         hidden_states = self.token_embeddings(input_ids) + self.position_embeddings(positions)
@@ -184,7 +206,12 @@ class DecoderOnlyTransformer(nn.Module):
                         attention_outputs=capture.attention_outputs,
                         mlp_activations=True,
                     )
-            hidden_states, weights, attention_output, mlp_activations = block(hidden_states, block_capture)
+            hidden_states, weights, attention_output, mlp_activations = block(
+                hidden_states,
+                block_capture,
+                interventions=interventions,
+                layer_index=layer_index,
+            )
             if weights is not None:
                 captured_attentions.append(weights.detach())
             if capture is not None and capture.hidden_states:

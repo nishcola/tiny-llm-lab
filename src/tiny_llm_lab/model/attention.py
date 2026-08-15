@@ -8,6 +8,7 @@ import torch
 from torch import Tensor, nn
 
 from tiny_llm_lab.config import ModelConfig
+from tiny_llm_lab.interventions import InterventionSet
 
 
 class CausalSelfAttention(nn.Module):
@@ -26,6 +27,8 @@ class CausalSelfAttention(nn.Module):
         self,
         inputs: Tensor,
         return_attention: bool = False,
+        interventions: InterventionSet | None = None,
+        layer_index: int | None = None,
     ) -> tuple[Tensor, Tensor | None]:
         batch_size, sequence_length, embedding_dim = inputs.shape
         query, key, value = self.query_key_value(inputs).chunk(3, dim=-1)
@@ -41,7 +44,8 @@ class CausalSelfAttention(nn.Module):
         weights = torch.softmax(scores, dim=-1)
         dropped_weights = self.attention_dropout(weights)
         attended = dropped_weights @ value
+        if interventions is not None and layer_index is not None and interventions.enabled:
+            attended = interventions.apply_attention_output(layer_index, attended)
         attended = attended.transpose(1, 2).contiguous().view(batch_size, sequence_length, embedding_dim)
         output = self.output_dropout(self.output_projection(attended))
         return output, weights if return_attention else None
-
