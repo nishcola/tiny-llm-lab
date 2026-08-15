@@ -1,7 +1,5 @@
 # Demo Runbook
 
-The recommended demo uses a `v0.1-demo` release asset rather than a Git-tracked binary. The prepared local bundle is `dist/tiny-llm-lab-demo-run-v0.1.zip` with a companion `dist/SHA256SUMS.txt`; upload both to the [GitHub release page](https://github.com/nishcola/tiny-llm-lab/releases/new) with tag `v0.1-demo` before sharing these download commands.
-
 ```powershell
 Invoke-WebRequest https://github.com/nishcola/tiny-llm-lab/releases/download/v0.1-demo/tiny-llm-lab-demo-run-v0.1.zip -OutFile tiny-llm-lab-demo-run-v0.1.zip
 Invoke-WebRequest https://github.com/nishcola/tiny-llm-lab/releases/download/v0.1-demo/SHA256SUMS.txt -OutFile SHA256SUMS.txt
