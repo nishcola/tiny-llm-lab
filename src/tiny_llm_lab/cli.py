@@ -14,7 +14,8 @@ import torch
 from tiny_llm_lab.config import ExperimentConfig, load_config
 from tiny_llm_lab.data import DatasetMetadata, TextDataset
 from tiny_llm_lab.model import DecoderOnlyTransformer
-from tiny_llm_lab.tokenizer import BytePairTokenizer, Tokenizer
+from tiny_llm_lab.experiments import run_milestone_10
+from tiny_llm_lab.tokenizer import BytePairTokenizer, CharacterTokenizer, Tokenizer
 from tiny_llm_lab.training.checkpoint import TimelineRun, discover_timeline_run, load_checkpoint
 from tiny_llm_lab.training.trainer import select_device, train_model
 
@@ -43,7 +44,11 @@ def _prepare_experiment(config: ExperimentConfig) -> tuple[
     ExperimentConfig, Tokenizer, TextDataset
 ]:
     text = config.data.path.read_bytes().decode("utf-8")
-    tokenizer = BytePairTokenizer.train(text, config.tokenizer.vocabulary_size)
+    tokenizer: Tokenizer
+    if config.tokenizer.kind == "character":
+        tokenizer = CharacterTokenizer.from_text(text)
+    else:
+        tokenizer = BytePairTokenizer.train(text, config.tokenizer.vocabulary_size)
     effective_config = replace(
         config,
         model=replace(config.model, vocabulary_size=tokenizer.vocabulary_size),
@@ -109,6 +114,14 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser = subparsers.add_parser("train", help="Train or resume a tiny transformer")
     train_parser.add_argument("--config", type=Path, required=True)
     train_parser.add_argument("--resume", type=Path)
+
+    experiment_parser = subparsers.add_parser("experiment", help="Run a fixed controlled experiment suite")
+    experiment_subparsers = experiment_parser.add_subparsers(dest="experiment_command", required=True)
+    experiment_run = experiment_subparsers.add_parser("run", help="Run one approved experiment suite")
+    experiment_run.add_argument("--suite", choices=("milestone-10",), required=True)
+    experiment_run.add_argument("--data", type=Path, default=Path("data/tiny_shakespeare.txt"))
+    experiment_run.add_argument("--output", type=Path, default=Path("checkpoints/experiments/milestone-10"))
+    experiment_run.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     return parser
 
 
@@ -120,6 +133,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
             f"downloaded {metadata.byte_count} bytes to {parsed.output}; "
             f"sha256={metadata.sha256}"
         )
+        return 0
+    if parsed.command == "experiment":
+        run_milestone_10(parsed.data, output_dir=parsed.output, device=parsed.device)
+        print(f"experiment results written to {parsed.output}")
         return 0
     return _run_train(parsed.config, parsed.resume)
 

@@ -29,6 +29,7 @@ from tiny_llm_lab.app.explorer import (
     TimelineCheckpointCache,
     inspect_prompt,
 )
+from tiny_llm_lab.app.experiment_results import render_experiment_results
 from tiny_llm_lab.app.interventions import compare_intervention
 from tiny_llm_lab.app.formatting import format_token
 from tiny_llm_lab.interventions import DisableAttentionHead, InterventionSet, ScaleMLPActivation
@@ -558,11 +559,15 @@ def main() -> None:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--checkpoint", type=Path)
     source.add_argument("--run", type=Path)
+    source.add_argument("--experiments", type=Path)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     arguments = parser.parse_args()
 
     import streamlit as st
 
+    if arguments.experiments is not None:
+        render_experiment_results(st, arguments.experiments)
+        return
     try:
         device = select_device(arguments.device)
         if arguments.checkpoint is not None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import torch
 from torch import Tensor, nn
@@ -133,7 +134,17 @@ class DecoderOnlyTransformer(nn.Module):
             raise ValueError("vocabulary_size must be set before constructing the model")
         self.config = config
         self.token_embeddings = nn.Embedding(config.vocabulary_size, config.embedding_dim)
-        self.position_embeddings = nn.Embedding(config.context_length, config.embedding_dim)
+        self.position_embeddings: nn.Embedding | None
+        if config.position_encoding == "learned":
+            self.position_embeddings = nn.Embedding(config.context_length, config.embedding_dim)
+            self.register_buffer("position_encoding", None, persistent=False)
+        else:
+            self.position_embeddings = None
+            self.register_buffer(
+                "position_encoding",
+                _sinusoidal_position_encoding(config.context_length, config.embedding_dim),
+                persistent=False,
+            )
         self.embedding_dropout = nn.Dropout(config.dropout)
         self.blocks = nn.ModuleList([DecoderBlock(config) for _ in range(config.num_layers)])
         self.final_norm = nn.LayerNorm(config.embedding_dim)
@@ -174,7 +185,11 @@ class DecoderOnlyTransformer(nn.Module):
             )
 
         positions = torch.arange(sequence_length, device=input_ids.device)
-        hidden_states = self.token_embeddings(input_ids) + self.position_embeddings(positions)
+        if self.position_embeddings is not None:
+            position_values = self.position_embeddings(positions)
+        else:
+            position_values = self.position_encoding[:sequence_length]
+        hidden_states = self.token_embeddings(input_ids) + position_values
         hidden_states = self.embedding_dropout(hidden_states)
         capture = instrumentation if instrumentation is not None and instrumentation.enabled else None
         if capture is not None and capture.mlp_activation_layer is not None:
@@ -242,3 +257,16 @@ class DecoderOnlyTransformer(nn.Module):
                 selected_mlp_activation_layer=capture.mlp_activation_layer,
             )
         return ModelOutput(logits=logits, loss=loss, instrumentation=captured)
+
+
+def _sinusoidal_position_encoding(context_length: int, embedding_dim: int) -> Tensor:
+    """Return the canonical fixed sin/cos positional table on CPU."""
+    positions = torch.arange(context_length, dtype=torch.float32).unsqueeze(1)
+    frequencies = torch.exp(
+        torch.arange(0, embedding_dim, 2, dtype=torch.float32)
+        * (-math.log(10_000.0) / embedding_dim)
+    )
+    encoding = torch.zeros(context_length, embedding_dim, dtype=torch.float32)
+    encoding[:, 0::2] = torch.sin(positions * frequencies)
+    encoding[:, 1::2] = torch.cos(positions * frequencies)
+    return encoding
