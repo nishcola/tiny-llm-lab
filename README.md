@@ -6,8 +6,10 @@ The goal is to show the model, data path, experiments, and tradeoffs without req
 
 # Gallery
 
+<img width="820" height="762" alt="Screenshot 2026-08-14 235434" src="https://github.com/user-attachments/assets/e0bcaa5e-f9b7-4949-b1f7-e5f9894017c6" />
+<img width="801" height="721" alt="Screenshot 2026-08-14 235421" src="https://github.com/user-attachments/assets/552795bf-df23-4840-8e60-367d6d4850c7" />
 <img width="830" height="846" alt="Screenshot 2026-08-14 235404" src="https://github.com/user-attachments/assets/fd647d58-eee6-49ee-bd0d-8a0a2913b8d2" />
-
+<img width="811" height="606" alt="Screenshot 2026-08-14 235322" src="https://github.com/user-attachments/assets/3e8bb6d9-66c2-4ddd-80e3-96ea2172bbcc" />
 
 ## What is implemented
 
