@@ -29,7 +29,9 @@ from tiny_llm_lab.app.explorer import (
     TimelineCheckpointCache,
     inspect_prompt,
 )
+from tiny_llm_lab.app.interventions import compare_intervention
 from tiny_llm_lab.app.formatting import format_token
+from tiny_llm_lab.interventions import DisableAttentionHead, InterventionSet, ScaleMLPActivation
 from tiny_llm_lab.training.checkpoint import (
     TimelineRun,
     discover_timeline_run,
@@ -129,6 +131,13 @@ def render_explorer(
         hide_index=True,
         width="stretch",
     )
+    render_intervention_explorer(
+        page,
+        session,
+        prompt,
+        temperature=temperature,
+        display_count=display_count,
+    )
     if inspection.attention.was_truncated:
         page.info(
             f"Showing attention for the first {len(inspection.attention.view.token_labels)} "
@@ -139,6 +148,102 @@ def render_explorer(
         render_activation_explorer(page, session, prompt)
     if embedding_cache is not None and checkpoint_digest is not None:
         render_embedding_explorer(page, session, embedding_cache, checkpoint_digest=checkpoint_digest)
+
+
+def render_intervention_explorer(
+    page: Any,
+    session: ExplorerSession,
+    prompt: str,
+    *,
+    temperature: float,
+    display_count: int,
+) -> None:
+    """Render one temporary inference-time intervention and its distribution delta."""
+    page.subheader("Model Interventions")
+    page.caption(
+        "Temporary inference-time intervention — saved checkpoint weights are unchanged. "
+        "This comparison is exploratory and does not establish a unit's meaning."
+    )
+    selection = page.selectbox(
+        "Intervention",
+        options=(
+            "No intervention",
+            "Disable attention head",
+            "Zero MLP activation",
+            "Scale MLP activation",
+        ),
+    )
+    if selection == "No intervention":
+        return
+
+    if selection == "Disable attention head":
+        layer_index = int(
+            page.selectbox(
+                "Intervention attention layer",
+                options=range(session.model.config.num_layers),
+                format_func=lambda value: f"Layer {value}",
+            )
+        )
+        head_index = int(
+            page.selectbox(
+                "Intervention attention head",
+                options=range(session.model.config.num_heads),
+                format_func=lambda value: f"Head {value}",
+            )
+        )
+        intervention = InterventionSet(DisableAttentionHead(layer_index, head_index))
+    else:
+        layer_index = int(
+            page.selectbox(
+                "Intervention MLP layer",
+                options=range(session.model.config.num_layers),
+                format_func=lambda value: f"Layer {value}",
+            )
+        )
+        unit_index = int(
+            page.selectbox(
+                "Intervention MLP unit",
+                options=range(session.model.config.mlp_dim),
+                format_func=lambda value: f"Unit {value}",
+            )
+        )
+        scale = 0.0
+        if selection == "Scale MLP activation":
+            scale = float(
+                page.number_input(
+                    "Activation scale",
+                    min_value=-2.0,
+                    max_value=2.0,
+                    value=1.0,
+                    step=0.1,
+                )
+            )
+        intervention = InterventionSet(ScaleMLPActivation(layer_index, unit_index, scale))
+
+    try:
+        comparison = compare_intervention(
+            session,
+            prompt,
+            intervention=intervention,
+            temperature=temperature,
+            display_count=display_count,
+        )
+    except ValueError as error:
+        page.error(str(error))
+        return
+    page.dataframe(
+        [
+            {
+                "Token": row.text,
+                "Baseline probability": f"{row.baseline_probability:.2%}",
+                "Modified probability": f"{row.modified_probability:.2%}",
+                "Change": f"{row.delta_probability:+.2%}",
+            }
+            for row in comparison.changed_tokens
+        ],
+        hide_index=True,
+        width="stretch",
+    )
 
 
 def render_activation_explorer(page: Any, session: ExplorerSession, prompt: str) -> None:

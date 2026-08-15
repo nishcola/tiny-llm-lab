@@ -1,6 +1,7 @@
 """Decoder-only transformer components."""
 
 from tiny_llm_lab.model.attention import CausalSelfAttention
+from tiny_llm_lab.interventions import DisableAttentionHead, InterventionSet, ScaleMLPActivation
 from tiny_llm_lab.model.transformer import (
     DecoderOnlyTransformer,
     InstrumentationRequest,
@@ -10,8 +11,11 @@ from tiny_llm_lab.model.transformer import (
 
 __all__ = [
     "CausalSelfAttention",
+    "DisableAttentionHead",
     "DecoderOnlyTransformer",
+    "InterventionSet",
     "InstrumentationRequest",
     "ModelInstrumentation",
     "ModelOutput",
+    "ScaleMLPActivation",
 ]

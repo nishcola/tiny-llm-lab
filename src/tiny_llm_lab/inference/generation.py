@@ -8,6 +8,7 @@ from typing import Protocol
 import torch
 from torch import Tensor
 
+from tiny_llm_lab.interventions import InterventionSet
 from tiny_llm_lab.model import InstrumentationRequest, ModelInstrumentation, ModelOutput
 
 
@@ -19,7 +20,13 @@ class InferenceModel(Protocol):
 
     def train(self, mode: bool = True) -> "InferenceModel": ...
 
-    def __call__(self, input_ids: Tensor, *, instrumentation: InstrumentationRequest | None = None) -> ModelOutput: ...
+    def __call__(
+        self,
+        input_ids: Tensor,
+        *,
+        instrumentation: InstrumentationRequest | None = None,
+        interventions: InterventionSet | None = None,
+    ) -> ModelOutput: ...
 
 
 @dataclass(frozen=True)
@@ -74,8 +81,12 @@ def _next_token_distribution(
     temperature: float,
     top_k: int | None,
     instrumentation: InstrumentationRequest | None,
+    interventions: InterventionSet | None,
 ) -> NextTokenOutput:
-    output = model(input_ids, instrumentation=instrumentation)
+    if interventions is not None and interventions.enabled:
+        output = model(input_ids, instrumentation=instrumentation, interventions=interventions)
+    else:
+        output = model(input_ids, instrumentation=instrumentation)
     logits = output.logits[:, -1, :]
     return NextTokenOutput(
         logits=logits,
@@ -91,6 +102,7 @@ def next_token_distribution(
     temperature: float = 1.0,
     top_k: int | None = None,
     instrumentation: InstrumentationRequest | None = None,
+    interventions: InterventionSet | None = None,
 ) -> NextTokenOutput:
     """Inspect final-position logits and the distribution used for sampling."""
     if input_ids.ndim != 2 or input_ids.shape[1] == 0:
@@ -106,6 +118,7 @@ def next_token_distribution(
                 temperature=temperature,
                 top_k=top_k,
                 instrumentation=instrumentation,
+                interventions=interventions,
             )
     finally:
         model.train(was_training)
@@ -122,6 +135,7 @@ def generate(
     generator: torch.Generator | None = None,
     return_trace: bool = False,
     instrumentation: InstrumentationRequest | None = None,
+    interventions: InterventionSet | None = None,
 ) -> GenerationOutput:
     """Autoregressively generate tokens, optionally retaining per-step inspection data."""
     if input_ids.ndim != 2 or input_ids.shape[1] == 0:
@@ -147,6 +161,7 @@ def generate(
                     temperature=temperature,
                     top_k=top_k,
                     instrumentation=instrumentation,
+                    interventions=interventions,
                 )
                 if do_sample:
                     next_token_ids = torch.multinomial(

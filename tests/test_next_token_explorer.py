@@ -7,7 +7,7 @@ from torch import Tensor, nn
 
 from tiny_llm_lab.app.explorer import ExplorerSession, inspect_next_token
 from tiny_llm_lab.app.formatting import format_token
-from tiny_llm_lab.app.streamlit_page import render_explorer
+from tiny_llm_lab.app.streamlit_page import render_explorer, render_intervention_explorer
 from tiny_llm_lab.config import DataConfig, ExperimentConfig, ModelConfig, TrainingConfig
 from tiny_llm_lab.data import DatasetMetadata
 from tiny_llm_lab.model import DecoderOnlyTransformer, ModelInstrumentation, ModelOutput
@@ -149,6 +149,40 @@ def test_streamlit_page_renders_prompt_controls_token_and_prediction_tables() ->
     assert page.tables[1][0]["Token"] == "d"
     assert page.tables[1][0]["Probability"].endswith("%")
     assert all(options["width"] == "stretch" for options in page.table_options)
-    assert page.selectboxes == ["Transformer layer", "Attention head"]
+    assert page.selectboxes == ["Transformer layer", "Attention head", "Intervention"]
     assert len(page.figures) == 1
     assert not page.errors
+
+
+class InterventionPage:
+    def __init__(self) -> None:
+        self.captions: list[str] = []
+        self.tables: list[list[dict[str, object]]] = []
+        self.selectboxes: list[str] = []
+
+    def subheader(self, value: str) -> None: pass
+    def caption(self, value: str) -> None: self.captions.append(value)
+    def selectbox(self, label: str, options: object, **kwargs: object) -> object:
+        self.selectboxes.append(label)
+        if label == "Intervention":
+            return "Zero MLP activation"
+        return next(iter(options))
+    def number_input(self, label: str, **kwargs: object) -> object: return kwargs["value"]
+    def dataframe(self, value: list[dict[str, object]], **kwargs: object) -> None: self.tables.append(value)
+    def error(self, value: str) -> None: raise AssertionError(value)
+
+
+def test_intervention_view_shows_checkpoint_safety_and_changed_token_comparison() -> None:
+    page = InterventionPage()
+    model = DecoderOnlyTransformer(
+        ModelConfig(vocabulary_size=4, context_length=4, embedding_dim=12, num_layers=1, num_heads=3, mlp_dim=24)
+    ).eval()
+    session = ExplorerSession(model, CharacterTokenizer.from_text("abcd"), torch.device("cpu"))
+
+    render_intervention_explorer(page, session, "ab", temperature=1.0, display_count=3)
+
+    assert page.selectboxes == ["Intervention", "Intervention MLP layer", "Intervention MLP unit"]
+    assert any("checkpoint weights are unchanged" in caption.lower() for caption in page.captions)
+    assert page.tables[0][0].keys() == {
+        "Token", "Baseline probability", "Modified probability", "Change"
+    }

@@ -75,6 +75,28 @@ attention_by_layer = inspected.instrumentation.attention_weights
 
 For generation, instrumentation requires `return_trace=True`; each trace step then includes logits, probabilities, the selected token, and its requested captures. Attention maps scale quadratically with prompt length, while hidden states and MLP activations scale linearly with sequence length. Plain model forwards and plain generation do not retain these tensors.
 
+## Controlled model interventions
+
+Inference can apply small, immutable interventions without modifying the loaded model or its
+checkpoint. `DisableAttentionHead(layer_index, head_index)` zeros a selected head's attended
+values after attention weighting and before head concatenation/output projection.
+`ScaleMLPActivation(layer_index, unit_index, scale)` scales one post-GELU MLP hidden unit at
+every prompt position before its output projection; use `scale=0.0` to zero that unit.
+
+Wrap one or more specs in `InterventionSet` and pass it to next-token inspection or generation:
+
+```python
+from tiny_llm_lab.inference import next_token_distribution
+from tiny_llm_lab.interventions import DisableAttentionHead, InterventionSet
+
+interventions = InterventionSet(DisableAttentionHead(layer_index=0, head_index=2))
+modified = next_token_distribution(model, prompt_ids, interventions=interventions)
+```
+
+No-intervention calls retain the normal inference path. Intervention operations are out-of-place
+tensor transformations during the forward pass, so they never alter parameter values, buffers, or
+saved checkpoints.
+
 ## Next-token explorer
 
 Install the optional local UI dependency, then launch the explorer with a trained checkpoint
@@ -96,6 +118,12 @@ The attention explorer selects a transformer layer and attention head, then rend
 heatmap. Future-token cells are visibly unavailable, and prompts longer than 32 tokens are displayed as their
 first 32 tokens so labels remain readable. Prompts must contain at least one token and fit within the checkpoint's
 context limit.
+
+The **Model Interventions** panel compares baseline and modified next-token distributions for the
+same prompt. It supports disabling one attention head, zeroing one post-GELU MLP unit, or scaling
+one unit by a chosen factor. The comparison table ranks tokens by the absolute probability change
+and shows baseline, modified, and signed-delta probabilities. The panel applies one intervention
+at a time and explicitly labels every result as temporary inference-time exploration.
 
 ## MLP activation explorer
 
