@@ -17,6 +17,12 @@ from tiny_llm_lab.embedding_analysis import (
     plot_token_ids,
     search_token_labels,
 )
+from tiny_llm_lab.app.activation_explorer import (
+    MLP_REPRESENTATION,
+    PromptActivationResult,
+    inspect_mlp_activation,
+    scan_mlp_activation,
+)
 from tiny_llm_lab.app.explorer import (
     AttentionView,
     ExplorerSession,
@@ -129,8 +135,100 @@ def render_explorer(
             "tokens to keep the matrix readable."
         )
     render_attention_heatmap(page, inspection.attention.view)
+    if hasattr(session.model.config, "mlp_dim"):
+        render_activation_explorer(page, session, prompt)
     if embedding_cache is not None and checkpoint_digest is not None:
         render_embedding_explorer(page, session, embedding_cache, checkpoint_digest=checkpoint_digest)
+
+
+def render_activation_explorer(page: Any, session: ExplorerSession, prompt: str) -> None:
+    """Render one selected post-GELU MLP unit over the prompt tokens."""
+    page.subheader("MLP Activation Explorer")
+    page.caption(
+        f"Showing: {MLP_REPRESENTATION}. This is exploratory analysis: a high activation "
+        "does not, by itself, establish a human-readable meaning for a unit."
+    )
+    layer_index = int(
+        page.selectbox(
+            "MLP layer",
+            options=range(session.model.config.num_layers),
+            format_func=lambda value: f"Layer {value}",
+        )
+    )
+    unit_index = int(
+        page.selectbox(
+            "MLP hidden unit",
+            options=range(session.model.config.mlp_dim),
+            format_func=lambda value: f"Unit {value}",
+        )
+    )
+    try:
+        result = inspect_mlp_activation(
+            session, prompt, layer_index=layer_index, unit_index=unit_index
+        )
+    except ValueError as error:
+        page.error(str(error))
+        return
+    render_activation_plot(page, result)
+    if session.config is None:
+        page.info("The checkpoint does not include a configured training corpus to scan.")
+        return
+    if not page.button("Scan training corpus"):
+        return
+    try:
+        scan = scan_mlp_activation(
+            session,
+            session.config.data.path,
+            train_fraction=session.config.data.train_fraction,
+            layer_index=layer_index,
+            unit_index=unit_index,
+        )
+    except ValueError as error:
+        page.error(str(error))
+        return
+    page.subheader("Strongest positive activations in the training corpus")
+    page.caption(
+        f"Scanned {scan.scanned_tokens:,} training tokens from {scan.source}; results are examples, "
+        "not evidence of a definitive unit meaning."
+    )
+    page.dataframe(
+        [
+            {
+                "Token position": match.token_position,
+                "Token": match.token,
+                "Activation": f"{match.value:.6f}",
+                "Text snippet": match.snippet,
+            }
+            for match in scan.matches
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+
+
+def render_activation_plot(page: Any, result: PromptActivationResult) -> None:
+    """Render signed unit values with magnitude available in hover text."""
+    import plotly.graph_objects as go
+
+    figure = go.Figure(
+        go.Bar(
+            x=[token.position for token in result.tokens],
+            y=[token.value for token in result.tokens],
+            customdata=[(token.token, token.magnitude) for token in result.tokens],
+            hovertemplate=(
+                "Position: %{x}<br>Token: %{customdata[0]}<br>"
+                "Activation: %{y:.6f}<br>Magnitude: %{customdata[1]:.6f}<extra></extra>"
+            ),
+            marker_color="#8da0cb",
+        )
+    )
+    figure.update_layout(
+        height=360,
+        margin={"l": 45, "r": 25, "t": 25, "b": 50},
+        xaxis_title="Input token position",
+        yaxis_title="Post-GELU activation value",
+    )
+    page.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
 
 
 def render_embedding_explorer(
@@ -381,7 +479,12 @@ def main() -> None:
             )
         render_explorer(
             st,
-            ExplorerSession(model=loaded.model, tokenizer=loaded.tokenizer, device=torch.device(device)),
+            ExplorerSession(
+                model=loaded.model,
+                tokenizer=loaded.tokenizer,
+                device=torch.device(device),
+                config=loaded.config,
+            ),
             embedding_cache=st.session_state[embedding_key],
             checkpoint_digest=st.session_state[digest_key].digest(arguments.checkpoint),
         )

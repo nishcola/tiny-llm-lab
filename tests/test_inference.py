@@ -125,6 +125,31 @@ def test_model_instrumentation_has_requested_semantic_tensor_shapes() -> None:
     assert not captured.hidden_states[0].requires_grad
 
 
+def test_model_captures_only_the_requested_mlp_layer() -> None:
+    model = DecoderOnlyTransformer(small_config()).eval()
+
+    output = model(
+        torch.randint(0, 7, (2, 4)),
+        instrumentation=InstrumentationRequest(mlp_activation_layer=1),
+    )
+
+    assert output.instrumentation is not None
+    assert output.instrumentation.mlp_activations is None
+    assert output.instrumentation.selected_mlp_activation_layer == 1
+    assert output.instrumentation.selected_mlp_activation is not None
+    assert output.instrumentation.selected_mlp_activation.shape == (2, 4, 24)
+    assert not output.instrumentation.selected_mlp_activation.requires_grad
+
+
+@pytest.mark.parametrize("layer_index", [-1, 2])
+def test_model_rejects_an_out_of_range_targeted_mlp_layer(layer_index: int) -> None:
+    with pytest.raises(ValueError, match="MLP activation layer"):
+        DecoderOnlyTransformer(small_config())(
+            torch.randint(0, 7, (1, 2)),
+            instrumentation=InstrumentationRequest(mlp_activation_layer=layer_index),
+        )
+
+
 def test_normal_forward_does_not_return_instrumentation() -> None:
     output = DecoderOnlyTransformer(small_config())(torch.randint(0, 7, (2, 4)))
 

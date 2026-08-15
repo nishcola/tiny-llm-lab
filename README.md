@@ -97,6 +97,21 @@ heatmap. Future-token cells are visibly unavailable, and prompts longer than 32 
 first 32 tokens so labels remain readable. Prompts must contain at least one token and fit within the checkpoint's
 context limit.
 
+## MLP activation explorer
+
+The activation view examines one **post-GELU MLP hidden unit**: a coordinate after the
+MLP's first linear layer and GELU, before its output projection returns to the residual
+stream. Choose a layer and unit to view its signed activation and magnitude across the
+prompt tokens. These views are exploratory; a high activation is an example to investigate,
+not proof that a unit has a definite human-readable meaning.
+
+The optional training-corpus scan uses the checkpoint's configured corpus and training split.
+It reads at most 2 MiB, examines at most 100,000 tokens in batches of eight context windows,
+and retains only the ten strongest positive matches plus their local snippets. It captures only
+the selected layer, transfers only the selected unit's batch values to CPU, and never retains a
+corpus-wide activation tensor. If the source
+file is unavailable or not valid UTF-8, the UI reports the error without disrupting prompt inspection.
+
 ## Embedding explorer
 
 The explorer also projects the selected checkpoint's learned **input token embeddings** into two dimensions with

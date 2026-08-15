@@ -20,6 +20,7 @@ class InstrumentationRequest:
     hidden_states: bool = False
     attention_outputs: bool = False
     mlp_activations: bool = False
+    mlp_activation_layer: int | None = None
 
     @property
     def enabled(self) -> bool:
@@ -29,6 +30,7 @@ class InstrumentationRequest:
                 self.hidden_states,
                 self.attention_outputs,
                 self.mlp_activations,
+                self.mlp_activation_layer is not None,
             )
         )
 
@@ -41,6 +43,8 @@ class ModelInstrumentation:
     hidden_states: tuple[Tensor, ...] | None = None
     attention_outputs: tuple[Tensor, ...] | None = None
     mlp_activations: tuple[Tensor, ...] | None = None
+    selected_mlp_activation: Tensor | None = None
+    selected_mlp_activation_layer: int | None = None
 
 
 @dataclass(frozen=True)
@@ -151,14 +155,36 @@ class DecoderOnlyTransformer(nn.Module):
         hidden_states = self.token_embeddings(input_ids) + self.position_embeddings(positions)
         hidden_states = self.embedding_dropout(hidden_states)
         capture = instrumentation if instrumentation is not None and instrumentation.enabled else None
+        if capture is not None and capture.mlp_activation_layer is not None:
+            if not 0 <= capture.mlp_activation_layer < self.config.num_layers:
+                raise ValueError(
+                    f"MLP activation layer must be between 0 and {self.config.num_layers - 1}"
+                )
         captured_attentions: list[Tensor] = []
         captured_hidden_states: list[Tensor] = []
         captured_attention_outputs: list[Tensor] = []
         captured_mlp_activations: list[Tensor] = []
+        selected_mlp_activation: Tensor | None = None
         if capture is not None and capture.hidden_states:
             captured_hidden_states.append(hidden_states.detach())
-        for block in self.blocks:
-            hidden_states, weights, attention_output, mlp_activations = block(hidden_states, capture)
+        for layer_index, block in enumerate(self.blocks):
+            block_capture = capture
+            if capture is not None and capture.mlp_activation_layer is not None:
+                block_capture = InstrumentationRequest(
+                    attention_weights=capture.attention_weights,
+                    hidden_states=capture.hidden_states,
+                    attention_outputs=capture.attention_outputs,
+                    mlp_activations=capture.mlp_activations,
+                    mlp_activation_layer=None,
+                )
+                if layer_index == capture.mlp_activation_layer:
+                    block_capture = InstrumentationRequest(
+                        attention_weights=capture.attention_weights,
+                        hidden_states=capture.hidden_states,
+                        attention_outputs=capture.attention_outputs,
+                        mlp_activations=True,
+                    )
+            hidden_states, weights, attention_output, mlp_activations = block(hidden_states, block_capture)
             if weights is not None:
                 captured_attentions.append(weights.detach())
             if capture is not None and capture.hidden_states:
@@ -166,7 +192,11 @@ class DecoderOnlyTransformer(nn.Module):
             if attention_output is not None:
                 captured_attention_outputs.append(attention_output.detach())
             if mlp_activations is not None:
-                captured_mlp_activations.append(mlp_activations.detach())
+                if capture is not None and capture.mlp_activation_layer is not None:
+                    if layer_index == capture.mlp_activation_layer:
+                        selected_mlp_activation = mlp_activations.detach()
+                else:
+                    captured_mlp_activations.append(mlp_activations.detach())
         logits = self.language_model_head(self.final_norm(hidden_states))
         loss = None
         if targets is not None:
@@ -181,5 +211,7 @@ class DecoderOnlyTransformer(nn.Module):
                 hidden_states=tuple(captured_hidden_states) if capture.hidden_states else None,
                 attention_outputs=tuple(captured_attention_outputs) if capture.attention_outputs else None,
                 mlp_activations=tuple(captured_mlp_activations) if capture.mlp_activations else None,
+                selected_mlp_activation=selected_mlp_activation,
+                selected_mlp_activation_layer=capture.mlp_activation_layer,
             )
         return ModelOutput(logits=logits, loss=loss, instrumentation=captured)
